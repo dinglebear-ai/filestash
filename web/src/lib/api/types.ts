@@ -41,6 +41,36 @@ export interface Session {
   authorization?: string;
 }
 
+/** server/common.FormElement. NOTE: Go's `Name` field serializes as `label`. */
+export interface FormElement {
+  id?: string;
+  /** field name (Go `Name`, JSON key "label") — used both as key and display */
+  label: string;
+  type: string; // text | password | long_password | number | hidden | enable | select | boolean | ...
+  description?: string;
+  placeholder?: string;
+  pattern?: string;
+  options?: string[];
+  /** ids of fields revealed when an `enable` toggle is on */
+  target?: string[];
+  readonly?: boolean;
+  default?: unknown;
+  value?: unknown;
+  multi?: boolean;
+  datalist?: string[];
+  required?: boolean;
+}
+
+/** server/common.Form — recursive (optional titled sub-groups). */
+export interface BackendForm {
+  Title?: string;
+  Form?: BackendForm[];
+  Elmnts?: FormElement[];
+}
+
+/** GET /api/backend → map of backend key → its login form. */
+export type BackendsMap = Record<string, BackendForm>;
+
 /** Public config payload (server Config.Export()) — shape is dynamic; the fields
  *  below are the ones the shell relies on. Treat the rest as opaque. */
 export interface PublicConfig {

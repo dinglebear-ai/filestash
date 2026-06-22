@@ -6,6 +6,7 @@
 // existing Filestash routes (server/ctrl/static.go allowlist).
 import { usePathname } from "next/navigation";
 import { Placeholder } from "@/screens/placeholder";
+import { ConnectScreen } from "@/screens/connect";
 
 export function AppRouter() {
   const pathname = usePathname() || "/";
@@ -16,8 +17,7 @@ export function AppRouter() {
   }
 
   // Front office (mirrors ServeFrontofficeHandler's allowlist).
-  if (pathname === "/") return <Placeholder name="Home" />;
-  if (pathname === "/login") return <Placeholder name="Connect / Login" />;
+  if (pathname === "/" || pathname === "/login") return <ConnectScreen />;
   if (pathname === "/logout") return <Placeholder name="Logout" />;
   if (pathname.startsWith("/files")) return <Placeholder name="Files" />;
   if (pathname.startsWith("/view")) return <Placeholder name="Viewer" />;

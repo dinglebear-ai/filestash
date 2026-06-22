@@ -2,7 +2,12 @@
 // against server/routes.go and server/ctrl/*.go (file ops use query params, not
 // JSON bodies; login posts a JSON body; sessions are cookie-based).
 import { api } from "./client";
-import type { FileEntry, PublicConfig, Session } from "./types";
+import type { BackendsMap, FileEntry, PublicConfig, Session } from "./types";
+
+export const backendApi = {
+  /** GET /api/backend — available storage backends and their login forms. */
+  list: (signal?: AbortSignal) => api.get<BackendsMap>("/api/backend", { signal }),
+};
 
 export const configApi = {
   /** GET /api/config — runtime config for the static shell (name, base, …). */
