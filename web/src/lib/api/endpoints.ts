@@ -23,6 +23,22 @@ export const sessionApi = {
   logout: () => api.delete<{ logout: boolean } | null>("/api/session"),
 };
 
+export const adminApi = {
+  /** GET /admin/api/session — true if admin-authenticated (or no admin set). */
+  session: (signal?: AbortSignal) => api.get<boolean>("/admin/api/session", { signal }),
+  /** POST /admin/api/session — authenticate the admin console with a password. */
+  login: (password: string) => api.post<unknown>("/admin/api/session", { password }),
+  /** GET /admin/api/config — full config tree (nested FormElements with values). */
+  getConfig: (signal?: AbortSignal) =>
+    api.get<Record<string, Record<string, unknown>>>("/admin/api/config", { signal }),
+  /** POST /admin/api/config — save the full config tree. */
+  saveConfig: (config: unknown) => api.post<null>("/admin/api/config", config as Record<string, unknown>),
+  /** GET /admin/api/logs — raw log text. */
+  logs: (signal?: AbortSignal) => api.get<string>("/admin/api/logs", { signal }),
+  /** GET /admin/api/audit — audit query result. */
+  audit: (signal?: AbortSignal) => api.get<unknown>("/admin/api/audit", { signal }),
+};
+
 export const filesApi = {
   /** GET /api/files/ls?path= — list a directory. */
   ls: (path: string, signal?: AbortSignal) =>

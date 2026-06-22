@@ -10,13 +10,14 @@ import { ConnectScreen } from "@/screens/connect";
 import { FilesScreen } from "@/screens/files";
 import { ViewerScreen } from "@/screens/viewer";
 import { LogoutScreen } from "@/screens/logout";
+import { AdminScreen } from "@/screens/admin";
 
 export function AppRouter() {
   const pathname = usePathname() || "/";
 
   // Back office.
   if (pathname === "/admin" || pathname.startsWith("/admin/")) {
-    return <Placeholder name="Admin" />;
+    return <AdminScreen />;
   }
 
   // Front office (mirrors ServeFrontofficeHandler's allowlist).
