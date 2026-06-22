@@ -70,13 +70,12 @@ func ServeFrontofficeHandler(ctx *App, res http.ResponseWriter, req *http.Reques
 		`)))
 		return
 	}
+	// SPA fallback: serve the single shell for any front-office route (the
+	// Next.js client router resolves the screen). API and /assets routes are
+	// matched earlier, so anything reaching here is an app route. (Replaces the
+	// legacy hardcoded route allowlist, which 404'd routes like "/files" without
+	// a trailing slash.)
 	url := TrimBase(req.URL.Path)
-	if url != "/" && strings.HasPrefix(url, "/s/") == false &&
-		strings.HasPrefix(url, "/view/") == false && strings.HasPrefix(url, "/files/") == false &&
-		url != "/login" && url != "/logout" && strings.HasPrefix(url, "/tags") == false {
-		NotFoundHandler(ctx, res, req)
-		return
-	}
 	if url != URL_SETUP && Config.Get("auth.admin").String() == "" {
 		http.Redirect(res, req, URL_SETUP, http.StatusTemporaryRedirect)
 		return
