@@ -1,6 +1,6 @@
 # Filestash → Next.js + Aurora Frontend Rewrite — Design
 
-**Date:** 2026-06-22
+**Date:** 2026-06-22 (rescoped 2026-06-22)
 **Status:** Approved (via /goal directive) — implementation in progress
 **Branch:** `feat/nextjs-aurora-frontend`
 
@@ -16,10 +16,18 @@ System, statically exported and embedded into the existing single Go binary.
 |---|---|
 | Deploy model | Next.js **static export** (`output: 'export'`), embedded into the Go binary via `//go:embed public`. **No Node at runtime.** |
 | Sequencing | **Big-bang full rewrite**, single cutover. |
-| Fidelity | **Redesign around Aurora** (not a reskin) — per-screen design work. |
-| Backend scope | Backend changes **in scope, including API refactor**. |
+| Fidelity | **Faithful port** — reproduce current Filestash UX 1:1 in React + Aurora (reskin to Aurora components/tokens, not a redesign). |
+| Backend scope | **No API/behavior changes.** Consume the existing Go API exactly as-is. A **minimal Go *serving* tweak only** is permitted to serve the static export (asset prefix + SPA shell routing) — not endpoints, not response shapes. |
 | Frontend plugins | All 7 frontend add-ons **dropped**. ~50 backend Go plugins untouched. |
 | Viewers | **All 14** ported (full preview parity). |
+
+### Rescope note (2026-06-22)
+Originally scoped as "redesign around Aurora + backend API refactor." Rescoped to a
+**faithful port with no backend/API changes**. The only backend edit allowed is a
+small static-serving change, because Next static export emits per-route HTML +
+`/_next/*` assets while the Go server serves one fixed shell (`index.frontoffice.html`)
+for an allowlist of routes and assets only under `/assets/*`. Resolution: set Next
+`assetPrefix: "/assets"` and serve a single SPA shell (see Integration below).
 
 ## Current architecture (what we're replacing)
 
@@ -74,12 +82,14 @@ Typed client over existing Go JSON API:
 - **Config:** `GET /api/config`.
 - **Admin:** `/admin/api/{session,config,workflow,middlewares/authentication,audit,logs}`.
 
-## Redesigned screens (Aurora)
+## Ported screens (faithful, Aurora-skinned)
+
+Match the current Filestash screens/flows 1:1, rebuilt with Aurora components/tokens:
 
 - Home / Login (auth, OAuth, multi-step auth middleware).
-- Connect wizard (backend picker + dynamic forms from `/api/backend`).
+- Connect page (backend picker + dynamic forms from `/api/backend`).
 - File browser (list/grid, breadcrumb, selection, upload, drag-drop, context actions,
-  search, sidebar).
+  search, sidebar) — same layout/behavior as today.
 - Viewer (all 14 openers).
 - Share page + share management.
 - Admin backoffice (config editor, workflows, auth middleware, audit log, logs viewer).
@@ -92,15 +102,23 @@ Typed client over existing Go JSON API:
 `iframe`/`appframe` (Office/OnlyOffice/WOPI), `url`, `download` fallback,
 `skeleton` (loading). Each lazy-loaded so the base bundle stays small.
 
-## Backend / API changes (Go)
+## Integration: serving the static export from Go (minimal serving tweak only)
 
-- Ensure `GET /api/config` returns `appname`, `license`, `version`/`BUILD_REF`, `base`,
-  capabilities for the runtime shell.
-- Replace templated entry points with static HTML shells.
-- Dev CORS / proxy support for `next dev`.
-- Normalize response shapes where the redesign benefits; deprecate template-coupled paths.
-- Remove frontend-plugin injection machinery (frontend bits of `PluginInjector`,
-  `/overrides/xdg-open.js`, `.diff` application). Backend plugin hooks stay.
+No API/behavior changes. The existing API (`/api/config` already exists) is consumed
+as-is. The only Go edit is making the existing server serve the Next export:
+
+- **Next side:** `assetPrefix: "/assets"` so `/_next/*` asset URLs become `/assets/_next/*`
+  (which the existing `ServeFile` route already serves from `public/`). Single SPA shell
+  (client-side routing) so one HTML file serves all front-office routes.
+- **Build pipeline:** `next build` → `out/` → copy `out/_next` → `public/assets/_next`,
+  and `out/index.html` → `public/index.frontoffice.html` (+ backoffice shell). Makefile
+  brotli/gzip runs over the result.
+- **Go serving tweak (minimal):** `ServeFrontofficeHandler`/`ServeBackofficeHandler`
+  serve the new SPA shell; widen the route allowlist if the ported routes need it. No
+  endpoint, response-shape, or middleware/behavior changes.
+- Frontend-plugin injection machinery (`PluginInjector` frontend bits, `bundle.js`,
+  `/overrides/xdg-open.js`, `.diff` patching) is simply **not referenced** by the new
+  shell; the Go code stays untouched (the 7 frontend add-ons are dropped regardless).
 
 ## Dev workflow
 
@@ -119,14 +137,15 @@ Typed client over existing Go JSON API:
 ## Implementation phases
 
 1. **Foundation:** scaffold `web/` Next app (TS, App Router, static export), Tailwind v4 +
-   Aurora tokens, base theme/layout, build→`public/` pipeline, dev proxy.
-2. **Core infra:** typed API client, `/api/config` boot, session/auth context, TanStack
-   Query + Zustand wiring, error/loading primitives.
-3. **Auth + connect:** login (incl. OAuth/multi-step), connect wizard from `/api/backend`.
-4. **File browser:** `/files/*` list/grid, navigation, ops, upload, search, sidebar.
-5. **Viewers:** all 14, lazy-loaded.
-6. **Share:** shared-link page + management.
-7. **Admin backoffice:** config, workflows, auth middleware, audit, logs.
-8. **Backend changes:** config endpoint fields, static shells, remove frontend-plugin
-   machinery, CORS, response normalization.
-9. **Cutover:** embed export into `public/`, delete legacy frontend, verify build, E2E.
+   Aurora tokens, base theme/layout, dev proxy. ✅ done
+2. **Core infra:** typed API client, `/api/config` boot, TanStack Query, error/loading
+   primitives. ✅ done (session/auth context next)
+3. **Serving integration:** `assetPrefix: "/assets"`, single SPA shell, build→`public/`
+   pipeline, minimal Go serving tweak; verify the export is served by the Go binary.
+4. **Auth + connect:** login (incl. OAuth/multi-step), connect page from `/api/backend` —
+   faithful to current flow.
+5. **File browser:** `/files/*` list/grid, navigation, ops, upload, search, sidebar.
+6. **Viewers:** all 14, lazy-loaded.
+7. **Share:** shared-link page + management.
+8. **Admin backoffice:** config, workflows, auth middleware, audit, logs.
+9. **Cutover:** embed export into `public/`, delete legacy frontend, verify Go build, E2E.

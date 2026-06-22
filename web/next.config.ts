@@ -13,8 +13,11 @@ const nextConfig: NextConfig = {
   output: "export",
   // No Node image optimizer at runtime — required for static export.
   images: { unoptimized: true },
-  // Emit `route/index.html` so deep links resolve as static files.
-  trailingSlash: true,
+  // The Go server serves static files only under /assets/*. Prefix Next's asset
+  // URLs (/_next/*) so they resolve to /assets/_next/* — which the existing
+  // ServeFile route already serves from public/. The build pipeline copies
+  // out/_next -> public/assets/_next accordingly.
+  assetPrefix: "/assets",
 
   // Dev-only: proxy the Go JSON/WebSocket API so `next dev` runs against a real
   // backend. Skipped during static export builds (rewrites don't apply there).
