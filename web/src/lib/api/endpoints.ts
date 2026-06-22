@@ -61,6 +61,16 @@ export const filesApi = {
     api.post<null>("/api/files/mv", undefined, { query: { from, to } }),
   /** GET /api/files/cat?path= — direct URL for reading/downloading file content. */
   catUrl: (path: string) => `/api/files/cat?path=${encodeURIComponent(path)}`,
+  /** POST /api/files/cat?path= — save edited text content. */
+  save: async (path: string, content: string) => {
+    const res = await fetch(`/api/files/cat?path=${encodeURIComponent(path)}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "X-Requested-With": "XmlHttpRequest", "Content-Type": "text/plain" },
+      body: content,
+    });
+    if (!res.ok) throw new Error(`save failed (${res.status})`);
+  },
   /** POST /api/files/cat?path= — upload raw file content (not JSON). */
   upload: async (path: string, body: Blob | File) => {
     const res = await fetch(`/api/files/cat?path=${encodeURIComponent(path)}`, {

@@ -20,6 +20,7 @@ const FormViewer = dynamic(() => import("@/screens/viewers/form"), { ssr: false,
 const ThreeViewer = dynamic(() => import("@/screens/viewers/three"), { ssr: false, loading });
 const EbookViewer = dynamic(() => import("@/screens/viewers/ebook"), { ssr: false, loading });
 const MapViewer = dynamic(() => import("@/screens/viewers/map"), { ssr: false, loading });
+const EditorViewer = dynamic(() => import("@/screens/viewers/editor"), { ssr: false, loading });
 
 type Mimes = Record<string, string>;
 const THREE_D_EXT = new Set(["stl", "obj", "ply", "gltf", "glb"]);
@@ -86,13 +87,25 @@ export function ViewerScreen({ pathname }: { pathname: string }) {
       </header>
 
       <div className="flex flex-1 items-center justify-center overflow-auto p-4">
-        <ViewerBody kind={kind} src={src} name={name} ext={extOf(name)} />
+        <ViewerBody kind={kind} src={src} name={name} ext={extOf(name)} path={filePath} />
       </div>
     </div>
   );
 }
 
-function ViewerBody({ kind, src, name, ext }: { kind: string; src: string; name: string; ext: string }) {
+function ViewerBody({
+  kind,
+  src,
+  name,
+  ext,
+  path,
+}: {
+  kind: string;
+  src: string;
+  name: string;
+  ext: string;
+  path: string;
+}) {
   switch (kind) {
     case "image":
       // eslint-disable-next-line @next/next/no-img-element
@@ -104,7 +117,7 @@ function ViewerBody({ kind, src, name, ext }: { kind: string; src: string; name:
     case "pdf":
       return <iframe src={src} title={name} className="h-full w-full" style={{ border: 0 }} />;
     case "editor":
-      return <TextViewer src={src} />;
+      return <EditorViewer src={src} path={path} />;
     case "url":
       return <UrlViewer src={src} />;
     case "table":
@@ -120,31 +133,6 @@ function ViewerBody({ kind, src, name, ext }: { kind: string; src: string; name:
     default:
       return <DownloadFallback src={src} name={name} kind={kind} />;
   }
-}
-
-function TextViewer({ src }: { src: string }) {
-  const [text, setText] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let active = true;
-    fetch(src, { credentials: "include" })
-      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`failed (${r.status})`))))
-      .then((t) => active && setText(t))
-      .catch((e) => active && setError(e.message));
-    return () => {
-      active = false;
-    };
-  }, [src]);
-  if (error) return <p className="aurora-text-body text-[var(--aurora-error)]">{error}</p>;
-  if (text === null) return <p className="aurora-text-meta">Loading…</p>;
-  return (
-    <pre
-      className="h-full w-full overflow-auto rounded-[8px] p-4 aurora-text-code"
-      style={{ background: "var(--aurora-panel-strong)", border: "1px solid var(--aurora-border-default)" }}
-    >
-      {text}
-    </pre>
-  );
 }
 
 function UrlViewer({ src }: { src: string }) {
