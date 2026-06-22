@@ -4,7 +4,9 @@
 // (/admin/api/session), then sections: Settings (the config tree editor),
 // Logs, and Audit. Config nodes share the FormElement shape used elsewhere.
 import { useMemo, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import bcrypt from "bcryptjs";
 import { adminApi } from "@/lib/api/endpoints";
 import type { FormElement } from "@/lib/api/types";
 import { Button } from "@/registry/aurora/ui/button";
@@ -16,15 +18,85 @@ type ConfigTree = Record<string, unknown>;
 const isField = (n: unknown): n is FormElement =>
   typeof n === "object" && n !== null && typeof (n as { type?: unknown }).type === "string";
 
+// The admin config API returns nested FormElements ({label,type,value,...}); the
+// save endpoint expects flat values. Collapse each field node to its value before
+// POSTing (mirrors the legacy reshapeConfigBeforeSave / formObjToJSON$).
+function flattenConfig(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(flattenConfig);
+  if (node && typeof node === "object") {
+    const o = node as Record<string, unknown>;
+    if (typeof o.type === "string" && "value" in o) return o.value;
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(o)) out[k] = flattenConfig(v);
+    return out;
+  }
+  return node;
+}
+
 export function AdminScreen() {
   const queryClient = useQueryClient();
+  const pathname = usePathname() || "";
   const session = useQuery({ queryKey: ["admin-session"], queryFn: ({ signal }) => adminApi.session(signal) });
 
+  // First-run: the Go backoffice handler redirects here when no admin is set.
+  if (pathname.replace(/\/$/, "").endsWith("/setup")) {
+    return <AdminSetup onDone={() => queryClient.invalidateQueries({ queryKey: ["admin-session"] })} />;
+  }
   if (session.isLoading) return <Centered>Loading…</Centered>;
   if (!session.data) {
     return <AdminLogin onSuccess={() => queryClient.invalidateQueries({ queryKey: ["admin-session"] })} />;
   }
   return <AdminShell />;
+}
+
+function AdminSetup({ onDone }: { onDone: () => void }) {
+  const router = useRouter();
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const setup = useMutation({
+    mutationFn: async () => {
+      // Faithful to the legacy flow: client bcrypt-hashes the password, writes it
+      // into the config (allowed pre-admin), then authenticates. AdminOnly skips
+      // auth while auth.admin is unset.
+      const cfg = (await adminApi.getConfig()) as Record<string, Record<string, Record<string, unknown>>>;
+      if (cfg.auth?.admin) cfg.auth.admin.value = bcrypt.hashSync(password, 10);
+      await adminApi.saveConfig(flattenConfig(cfg));
+      await adminApi.login(password);
+    },
+    onSuccess: () => {
+      onDone();
+      router.replace("/admin/");
+    },
+  });
+
+  const canSubmit = password.length > 0 && password === confirm;
+  return (
+    <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center gap-5 px-6">
+      <header className="flex flex-col gap-1 text-center">
+        <p className="aurora-text-eyebrow text-[var(--aurora-text-muted)]">filestash</p>
+        <h1 className="aurora-text-section">Set up your admin password</h1>
+      </header>
+      <form
+        className="flex flex-col gap-4 rounded-[var(--aurora-radius-3)] p-6"
+        style={{ background: "var(--aurora-panel-strong)", border: "1px solid var(--aurora-border-strong)" }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (canSubmit) setup.mutate();
+        }}
+      >
+        <Field label="Admin password">
+          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
+        </Field>
+        <Field label="Confirm password" error={confirm && confirm !== password ? "Passwords don't match" : undefined}>
+          <Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+        </Field>
+        {setup.isError ? <p className="aurora-text-body-sm text-[var(--aurora-error)]">Setup failed. Try again.</p> : null}
+        <Button type="submit" variant="aurora" disabled={!canSubmit || setup.isPending}>
+          {setup.isPending ? "Setting up…" : "Create admin"}
+        </Button>
+      </form>
+    </main>
+  );
 }
 
 function AdminLogin({ onSuccess }: { onSuccess: () => void }) {
@@ -91,7 +163,7 @@ function SettingsPanel() {
   const cfg = useQuery({ queryKey: ["admin-config"], queryFn: ({ signal }) => adminApi.getConfig(signal) });
   const [draft, setDraft] = useState<ConfigTree | null>(null);
   const tree = draft ?? cfg.data ?? null;
-  const save = useMutation({ mutationFn: () => adminApi.saveConfig(tree) });
+  const save = useMutation({ mutationFn: () => adminApi.saveConfig(flattenConfig(tree)) });
 
   const setValue = (path: string[], value: unknown) => {
     setDraft((prev) => {
