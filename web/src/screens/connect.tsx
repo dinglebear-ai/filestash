@@ -43,14 +43,14 @@ export function ConnectScreen() {
   const selected = connections[selectedIdx];
 
   useEffect(() => {
-    if (session.data?.is_authenticated) router.replace("/files");
+    if (session.data?.is_authenticated) router.replace("/files/");
   }, [session.data, router]);
 
   const login = useMutation({
     mutationFn: (values: Record<string, string>) => sessionApi.login(values),
     onSuccess: (data: Session) => {
       queryClient.setQueryData(["session"], data);
-      router.replace("/files");
+      router.replace("/files/");
     },
   });
 
