@@ -9,6 +9,7 @@ import { Placeholder } from "@/screens/placeholder";
 import { ConnectScreen } from "@/screens/connect";
 import { FilesScreen } from "@/screens/files";
 import { ViewerScreen } from "@/screens/viewer";
+import { LogoutScreen } from "@/screens/logout";
 
 export function AppRouter() {
   const pathname = usePathname() || "/";
@@ -20,7 +21,7 @@ export function AppRouter() {
 
   // Front office (mirrors ServeFrontofficeHandler's allowlist).
   if (pathname === "/" || pathname === "/login") return <ConnectScreen />;
-  if (pathname === "/logout") return <Placeholder name="Logout" />;
+  if (pathname === "/logout") return <LogoutScreen />;
   if (pathname.startsWith("/files")) return <FilesScreen pathname={pathname} />;
   if (pathname.startsWith("/view")) return <ViewerScreen pathname={pathname} />;
   if (pathname.startsWith("/s/")) return <Placeholder name="Shared link" />;
