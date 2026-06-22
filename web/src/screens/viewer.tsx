@@ -7,19 +7,36 @@
 // being ported iteratively.
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { ArrowLeft, Download } from "lucide-react";
 import { filesApi } from "@/lib/api/endpoints";
 import { useConfig } from "@/lib/config/config-context";
 import { Button } from "@/registry/aurora/ui/button";
 
+// Heavy/niche viewers are lazy-loaded (client-only) so the base bundle stays small.
+const loading = () => <p className="aurora-text-meta">Loading…</p>;
+const TableViewer = dynamic(() => import("@/screens/viewers/table"), { ssr: false, loading });
+const FormViewer = dynamic(() => import("@/screens/viewers/form"), { ssr: false, loading });
+const ThreeViewer = dynamic(() => import("@/screens/viewers/three"), { ssr: false, loading });
+const EbookViewer = dynamic(() => import("@/screens/viewers/ebook"), { ssr: false, loading });
+const MapViewer = dynamic(() => import("@/screens/viewers/map"), { ssr: false, loading });
+
 type Mimes = Record<string, string>;
+const THREE_D_EXT = new Set(["stl", "obj", "ply", "gltf", "glb"]);
+const TABLE_EXT = new Set(["csv", "tsv"]);
+
+const extOf = (file: string) => file.split(".").slice(-1)[0]?.toLowerCase() ?? "";
 
 function getMimeType(file: string, mimes: Mimes): string {
-  return mimes[file.split(".").slice(-1)[0]?.toLowerCase()] ?? "text/plain";
+  return mimes[extOf(file)] ?? "text/plain";
 }
 
-/** Faithful to legacy mimetype.js opener() (minus dropped frontend plugins). */
+/** Faithful to legacy mimetype.js opener() (minus dropped frontend plugins), with
+ *  extension overrides for the formerly plugin-driven 3d/table viewers. */
 function opener(file: string, mimes: Mimes): string {
+  const ext = extOf(file);
+  if (THREE_D_EXT.has(ext)) return "3d";
+  if (TABLE_EXT.has(ext)) return "table";
   const mime = getMimeType(file, mimes);
   const type = mime.split("/")[0];
   if (type === "text") return "editor";
@@ -69,13 +86,13 @@ export function ViewerScreen({ pathname }: { pathname: string }) {
       </header>
 
       <div className="flex flex-1 items-center justify-center overflow-auto p-4">
-        <ViewerBody kind={kind} src={src} name={name} />
+        <ViewerBody kind={kind} src={src} name={name} ext={extOf(name)} />
       </div>
     </div>
   );
 }
 
-function ViewerBody({ kind, src, name }: { kind: string; src: string; name: string }) {
+function ViewerBody({ kind, src, name, ext }: { kind: string; src: string; name: string; ext: string }) {
   switch (kind) {
     case "image":
       // eslint-disable-next-line @next/next/no-img-element
@@ -90,6 +107,16 @@ function ViewerBody({ kind, src, name }: { kind: string; src: string; name: stri
       return <TextViewer src={src} />;
     case "url":
       return <UrlViewer src={src} />;
+    case "table":
+      return <TableViewer src={src} />;
+    case "form":
+      return <FormViewer src={src} />;
+    case "3d":
+      return <ThreeViewer src={src} ext={ext} />;
+    case "ebook":
+      return <EbookViewer src={src} />;
+    case "map":
+      return <MapViewer src={src} />;
     default:
       return <DownloadFallback src={src} name={name} kind={kind} />;
   }
