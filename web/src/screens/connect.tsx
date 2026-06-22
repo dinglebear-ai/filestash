@@ -93,6 +93,7 @@ export function ConnectScreen() {
       >
         {fields ? (
           <DynamicForm
+            key={selectedIdx}
             fields={fields}
             submitting={login.isPending}
             error={login.isError ? (login.error as Error).message : null}
