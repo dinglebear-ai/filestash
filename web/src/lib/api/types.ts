@@ -61,15 +61,20 @@ export interface FormElement {
   required?: boolean;
 }
 
-/** server/common.Form — recursive (optional titled sub-groups). */
-export interface BackendForm {
-  Title?: string;
-  Form?: BackendForm[];
-  Elmnts?: FormElement[];
-}
+/** A backend login form as returned by the API: an ordered map of field name →
+ *  element (server/common.Form marshals to a keyed object, not {Elmnts:[]}). */
+export type FormFields = Record<string, FormElement>;
 
-/** GET /api/backend → map of backend key → its login form. */
-export type BackendsMap = Record<string, BackendForm>;
+/** GET /api/backend → map of backend key → its keyed login form. */
+export type BackendsMap = Record<string, FormFields>;
+
+/** An entry in config.connections — the admin-configured connect-page list. Has a
+ *  display `label` and a backend `type`, plus optional prefilled field overrides. */
+export interface Connection {
+  label: string;
+  type: string;
+  [field: string]: unknown;
+}
 
 /** Public config payload (server Config.Export()) — shape is dynamic; the fields
  *  below are the ones the shell relies on. Treat the rest as opaque. */
@@ -77,5 +82,7 @@ export interface PublicConfig {
   name?: string;
   /** sub-path the app is mounted under, e.g. "/" or "/filestash/" */
   base?: string;
+  /** connect-page connection list (label + backend type + optional overrides) */
+  connections?: Connection[];
   [key: string]: unknown;
 }

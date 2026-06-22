@@ -1,34 +1,47 @@
 "use client";
 
-// Connect / login — faithful port of the legacy connect page: pick a storage
-// backend, fill its login form (from /api/backend), POST /api/session, then go to
-// the file browser. Already-authenticated sessions skip straight to /files.
-import { useEffect, useState } from "react";
+// Connect / login — faithful port of the legacy connect page. The connect-page
+// list comes from config.connections (label + backend type + optional prefilled
+// overrides); the field definitions for each type come from /api/backend. Submits
+// to POST /api/session, then goes to the file browser.
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { backendApi, sessionApi } from "@/lib/api/endpoints";
-import type { Session } from "@/lib/api/types";
+import { useConfig } from "@/lib/config/config-context";
+import type { Connection, FormFields, Session } from "@/lib/api/types";
 import { Button } from "@/registry/aurora/ui/button";
 import { DynamicForm } from "@/components/dynamic-form";
 
-const labelFor = (key: string) => key.charAt(0).toUpperCase() + key.slice(1);
+/** Merge a connection's prefilled overrides onto a backend's field definitions. */
+function applyOverrides(fields: FormFields, conn: Connection): FormFields {
+  const merged: FormFields = {};
+  for (const [name, el] of Object.entries(fields)) {
+    const override = conn[name];
+    merged[name] = override !== undefined ? { ...el, value: override } : el;
+  }
+  return merged;
+}
 
 export function ConnectScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { config } = useConfig();
 
   const session = useQuery({ queryKey: ["session"], queryFn: ({ signal }) => sessionApi.get(signal) });
   const backends = useQuery({ queryKey: ["backends"], queryFn: ({ signal }) => backendApi.list(signal) });
 
-  const [selected, setSelected] = useState<string | null>(null);
-  const keys = backends.data ? Object.keys(backends.data) : [];
+  // Connect-page list: prefer config.connections; fall back to all backends.
+  const connections = useMemo<Connection[]>(() => {
+    if (config.connections?.length) return config.connections;
+    return backends.data
+      ? Object.keys(backends.data).map((type) => ({ label: type, type }))
+      : [];
+  }, [config.connections, backends.data]);
 
-  // Default the selection to the first available backend once loaded.
-  useEffect(() => {
-    if (!selected && keys.length) setSelected(keys[0]);
-  }, [keys, selected]);
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const selected = connections[selectedIdx];
 
-  // Already signed in → go to the file browser.
   useEffect(() => {
     if (session.data?.is_authenticated) router.replace("/files");
   }, [session.data, router]);
@@ -41,32 +54,29 @@ export function ConnectScreen() {
     },
   });
 
-  if (session.isLoading || backends.isLoading) {
-    return <Centered>Loading…</Centered>;
-  }
-  if (backends.isError || !backends.data) {
-    return <Centered>Couldn&apos;t load storage backends.</Centered>;
-  }
+  if (session.isLoading || backends.isLoading) return <Centered>Loading…</Centered>;
+  if (backends.isError || !backends.data) return <Centered>Couldn&apos;t load storage backends.</Centered>;
 
-  const form = selected ? backends.data[selected] : undefined;
+  const baseFields = selected ? backends.data[selected.type] : undefined;
+  const fields = baseFields && selected ? applyOverrides(baseFields, selected) : undefined;
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-6 px-6 py-12">
       <header className="flex flex-col gap-1 text-center">
-        <p className="aurora-text-eyebrow text-[var(--aurora-text-muted)]">filestash</p>
+        <p className="aurora-text-eyebrow text-[var(--aurora-text-muted)]">{config.name ?? "filestash"}</p>
         <h1 className="aurora-text-section">Connect to a storage backend</h1>
       </header>
 
-      {keys.length > 1 ? (
+      {connections.length > 1 ? (
         <div className="flex flex-wrap justify-center gap-2">
-          {keys.map((k) => (
+          {connections.map((c, i) => (
             <Button
-              key={k}
+              key={`${c.label}-${i}`}
               size="sm"
-              variant={k === selected ? "aurora" : "neutral"}
-              onClick={() => setSelected(k)}
+              variant={i === selectedIdx ? "aurora" : "neutral"}
+              onClick={() => setSelectedIdx(i)}
             >
-              {labelFor(k)}
+              {c.label}
             </Button>
           ))}
         </div>
@@ -81,15 +91,17 @@ export function ConnectScreen() {
           boxShadow: "var(--aurora-shadow-strong), inset 0 1px 0 rgba(255,255,255,0.05)",
         }}
       >
-        {form ? (
+        {fields ? (
           <DynamicForm
-            form={form}
+            fields={fields}
             submitting={login.isPending}
             error={login.isError ? (login.error as Error).message : null}
             onSubmit={(values) => login.mutate(values)}
           />
         ) : (
-          <p className="aurora-text-body text-[var(--aurora-text-muted)]">Select a backend to continue.</p>
+          <p className="aurora-text-body text-[var(--aurora-text-muted)]">
+            No form available for this backend.
+          </p>
         )}
       </div>
     </main>

@@ -8,13 +8,7 @@ import { Field } from "@/registry/aurora/ui/field";
 import { Input } from "@/registry/aurora/ui/input";
 import { Switch } from "@/registry/aurora/ui/switch";
 import { Button } from "@/registry/aurora/ui/button";
-import type { BackendForm, FormElement } from "@/lib/api/types";
-
-function flatten(form: BackendForm): FormElement[] {
-  const out: FormElement[] = [...(form.Elmnts ?? [])];
-  for (const sub of form.Form ?? []) out.push(...flatten(sub));
-  return out;
-}
+import type { FormElement, FormFields } from "@/lib/api/types";
 
 function initialValues(elements: FormElement[]): Record<string, string> {
   const v: Record<string, string> = {};
@@ -26,17 +20,18 @@ function initialValues(elements: FormElement[]): Record<string, string> {
 }
 
 export function DynamicForm({
-  form,
+  fields,
   submitting,
   error,
   onSubmit,
 }: {
-  form: BackendForm;
+  fields: FormFields;
   submitting?: boolean;
   error?: string | null;
   onSubmit: (values: Record<string, string>) => void;
 }) {
-  const elements = useMemo(() => flatten(form), [form]);
+  // Object insertion order = display order (verified against /api/backend).
+  const elements = useMemo(() => Object.values(fields), [fields]);
   const [values, setValues] = useState<Record<string, string>>(() => initialValues(elements));
   // `enable` toggles → on/off, keyed by the toggle's field name.
   const [toggles, setToggles] = useState<Record<string, boolean>>({});
