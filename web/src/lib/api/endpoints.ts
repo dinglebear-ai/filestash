@@ -38,6 +38,15 @@ export const filesApi = {
     api.post<null>("/api/files/mv", undefined, { query: { from, to } }),
   /** GET /api/files/cat?path= — direct URL for reading/downloading file content. */
   catUrl: (path: string) => `/api/files/cat?path=${encodeURIComponent(path)}`,
+  /** POST /api/files/cat?path= — upload raw file content (not JSON). */
+  upload: async (path: string, body: Blob | File) => {
+    const res = await fetch(`/api/files/cat?path=${encodeURIComponent(path)}`, {
+      method: "POST",
+      credentials: "include",
+      body,
+    });
+    if (!res.ok) throw new Error(`upload failed (${res.status})`);
+  },
   /** GET /api/files/search?path=&q= — search within a path. */
   search: (path: string, q: string, signal?: AbortSignal) =>
     api.get<FileEntry[]>("/api/files/search", { query: { path, q }, signal }),
