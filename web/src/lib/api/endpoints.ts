@@ -39,6 +39,13 @@ export const adminApi = {
   audit: (signal?: AbortSignal) => api.get<unknown>("/admin/api/audit", { signal }),
 };
 
+export const shareApi = {
+  /** POST /api/share/{id}/proof — share proof step. Empty body starts the flow;
+   *  then {type,value} per step. Returns {key, path}: key="" means authorized. */
+  proof: (shareId: string, body: Record<string, string> | null) =>
+    api.post<{ key?: string; path?: string }>(`/api/share/${shareId}/proof`, body ?? {}),
+};
+
 export const filesApi = {
   /** GET /api/files/ls?path= — list a directory. */
   ls: (path: string, signal?: AbortSignal) =>

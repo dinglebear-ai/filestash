@@ -11,6 +11,7 @@ import { FilesScreen } from "@/screens/files";
 import { ViewerScreen } from "@/screens/viewer";
 import { LogoutScreen } from "@/screens/logout";
 import { AdminScreen } from "@/screens/admin";
+import { ShareScreen } from "@/screens/share";
 
 export function AppRouter() {
   const pathname = usePathname() || "/";
@@ -25,8 +26,8 @@ export function AppRouter() {
   if (pathname === "/logout") return <LogoutScreen />;
   if (pathname.startsWith("/files")) return <FilesScreen pathname={pathname} />;
   if (pathname.startsWith("/view")) return <ViewerScreen pathname={pathname} />;
-  if (pathname.startsWith("/s/")) return <Placeholder name="Shared link" />;
-  if (pathname.startsWith("/tags")) return <Placeholder name="Tags" />;
+  if (pathname.startsWith("/s/")) return <ShareScreen pathname={pathname} />;
+  // /tags is inactive in the legacy frontend (route commented out) — not ported.
 
   return <Placeholder name="Not found" />;
 }
