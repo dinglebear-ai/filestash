@@ -96,7 +96,8 @@ func Build(r *mux.Router) {
 	r.HandleFunc(WithBase("/api/plugin"), NewMiddlewareChain(PluginExportHandler, append(middlewares, PublicCORS))).Methods("GET", "OPTIONS")
 	r.HandleFunc(WithBase("/api/config"), NewMiddlewareChain(PublicConfigHandler, append(middlewares, PublicCORS))).Methods("GET", "OPTIONS")
 	middlewares = []Middleware{StaticHeaders, SecureHeaders, PublicCORS, PluginInjector}
-	r.PathPrefix(WithBase("/assets/bundle.js")).Handler(http.HandlerFunc(NewMiddlewareChain(ServeBundle(), middlewares))).Methods("GET", "OPTIONS")
+	// Legacy vanilla-JS bundle.js loader removed with the Aurora cutover (the new
+	// frontend loads its own /assets/_next chunks).
 	r.HandleFunc(WithBase("/assets/"+BUILD_REF+"/plugin/{name}.zip/{path:.+}"), NewMiddlewareChain(PluginStaticHandler, middlewares)).Methods("GET", "OPTIONS", "HEAD")
 	r.HandleFunc(WithBase("/assets/"+BUILD_REF+"/plugin/{name}.zip"), NewMiddlewareChain(PluginDownloadHandler, middlewares)).Methods("GET")
 	r.HandleFunc(WithBase("/assets/plugin/{name}.zip"), NewMiddlewareChain(PluginDownloadHandler, middlewares)).Methods("GET")
