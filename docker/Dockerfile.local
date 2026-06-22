@@ -1,0 +1,37 @@
+# Builds Filestash from the LOCAL working tree (not a git clone) so the embedded
+# public/ (Next.js + Aurora cutover) ships in the binary. Mirrors docker/Dockerfile
+# steps 2-3. Build from repo root:
+#   docker build -f docker/Dockerfile.local -t filestash-aurora:local .
+#
+# NOTE: .git must be in the build context — the constants generator runs
+# `git rev-parse HEAD` to set BUILD_REF (an empty BUILD_REF panics ServeIndex).
+
+# STEP1: BUILD BACKEND (embeds public/ via //go:embed)
+FROM golang:1.26-trixie AS builder_backend
+WORKDIR /home/filestash/
+# Native deps first so this slow layer stays cached across source changes.
+RUN apt-get update > /dev/null && \
+    apt-get install -y curl make > /dev/null 2>&1 && \
+    apt-get install -y libjpeg-dev libtiff-dev libpng-dev libwebp-dev libraw-dev libheif-dev libgif-dev libvips-dev > /dev/null 2>&1 && \
+    apt-get install -y libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libswresample-dev libswscale-dev libavutil-dev > /dev/null 2>&1
+COPY . .
+RUN make init && \
+    make build && \
+    mkdir -p ./dist/data/state/config/ && \
+    cp config/config.json ./dist/data/state/config/config.json
+
+# STEP2: PROD IMAGE
+FROM debian:stable-slim
+WORKDIR /app/
+COPY --from=builder_backend /home/filestash/dist/ .
+RUN apt-get update > /dev/null && \
+    apt-get -y upgrade > /dev/null && \
+    apt-get install -y --no-install-recommends ca-certificates curl ffmpeg libbrotli1 libvips > /dev/null 2>&1 && \
+    useradd filestash && \
+    chown -R filestash:filestash /app/ && \
+    rm -rf /var/lib/apt/lists/* && \
+    rm -rf /tmp/*
+
+USER filestash
+CMD ["/app/filestash"]
+EXPOSE 8334
