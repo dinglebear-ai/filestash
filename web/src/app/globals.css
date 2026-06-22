@@ -1,0 +1,83 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+/* Canonical Aurora typefaces (literal @font-face for Manrope/Inter/JetBrains Mono). */
+@import "../registry/aurora/styles/aurora-fonts.css";
+/* Canonical Aurora token bridge + semantic vars + type ramp + page-shell. Do not
+   re-declare these tokens here — fix Aurora source upstream and re-run sync-aurora. */
+@import "../registry/aurora/styles/aurora.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  /* shadcn token bridge */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Aurora-specific Tailwind color utilities */
+  --color-aurora-bg: var(--aurora-page-bg);
+  --color-aurora-nav: var(--aurora-nav-bg);
+  --color-aurora-panel: var(--aurora-panel-medium);
+  --color-aurora-panel-strong: var(--aurora-panel-strong);
+  --color-aurora-control: var(--aurora-control-surface);
+  --color-aurora-hover: var(--aurora-hover-bg);
+  --color-aurora-border: var(--aurora-border-default);
+  --color-aurora-border-strong: var(--aurora-border-strong);
+  --color-aurora-fg: var(--aurora-text-primary);
+  --color-aurora-muted: var(--aurora-text-muted);
+  --color-aurora-accent: var(--aurora-accent-primary);
+  --color-aurora-accent-strong: var(--aurora-accent-strong);
+  --color-aurora-accent-deep: var(--aurora-accent-deep);
+  --color-aurora-pink: var(--aurora-accent-pink);
+  --color-aurora-pink-strong: var(--aurora-accent-pink-strong);
+  --color-aurora-pink-deep: var(--aurora-accent-pink-deep);
+  --color-aurora-violet: var(--aurora-accent-violet);
+  --color-aurora-success: var(--aurora-success);
+  --color-aurora-warn: var(--aurora-warn);
+  --color-aurora-error: var(--aurora-error);
+
+  /* Radii */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+
+  /* Fonts */
+  --font-sans: var(--aurora-font-sans);
+  --font-mono: var(--aurora-font-mono);
+  --font-display: var(--aurora-font-display);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--aurora-font-sans);
+  }
+}
