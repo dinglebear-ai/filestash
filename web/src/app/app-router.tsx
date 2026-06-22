@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 import { Placeholder } from "@/screens/placeholder";
 import { ConnectScreen } from "@/screens/connect";
 import { FilesScreen } from "@/screens/files";
+import { ViewerScreen } from "@/screens/viewer";
 
 export function AppRouter() {
   const pathname = usePathname() || "/";
@@ -21,7 +22,7 @@ export function AppRouter() {
   if (pathname === "/" || pathname === "/login") return <ConnectScreen />;
   if (pathname === "/logout") return <Placeholder name="Logout" />;
   if (pathname.startsWith("/files")) return <FilesScreen pathname={pathname} />;
-  if (pathname.startsWith("/view")) return <Placeholder name="Viewer" />;
+  if (pathname.startsWith("/view")) return <ViewerScreen pathname={pathname} />;
   if (pathname.startsWith("/s/")) return <Placeholder name="Shared link" />;
   if (pathname.startsWith("/tags")) return <Placeholder name="Tags" />;
 
