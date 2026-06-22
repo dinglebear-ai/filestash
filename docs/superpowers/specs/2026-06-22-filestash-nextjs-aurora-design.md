@@ -148,4 +148,30 @@ as-is. The only Go edit is making the existing server serve the Next export:
 6. **Viewers:** all 14, lazy-loaded.
 7. **Share:** shared-link page + management.
 8. **Admin backoffice:** config, workflows, auth middleware, audit, logs.
-9. **Cutover:** embed export into `public/`, delete legacy frontend, verify Go build, E2E.
+9. **Cutover:** embed export into `public/`, delete legacy frontend, verify Go build, E2E. ✅ done
+
+## Implementation status (final)
+
+**Done + verified against the real binary (Docker build):**
+- All screens: connect/login (dynamic backend forms), file browser (ls/nav/ops/
+  upload/search), all 14 viewers incl. CodeMirror editor w/ save + table/3d/ebook/
+  map/form, logout, admin (first-run setup + Settings/Logs/Audit), shared-link proof.
+- Cutover: static export embedded via `//go:embed all:public`, served by the
+  existing Go server with one SPA-fallback tweak. Legacy frontend pruned (15M→1.3M),
+  `bundle.js` route removed.
+- Server-side fixes found via binary testing: `all:public` embed, `BUILD_REF` (.git
+  in build ctx), trailing-slash → SPA fallback, `X-Requested-With` for SecureOrigin,
+  config-save flattening.
+- Remote SFTP host connections (tootie/squirts/steamy-wsl/shart) addable via
+  config.connections; container reaches the tailnet via host networking.
+
+**Deferred / known limitations:**
+- **base-href / sub-path deploy:** runtime sub-path isn't feasible for a static
+  export (assets are absolutely referenced). Root deploy works; build-time
+  `basePath` is the future path.
+- **Admin fidelity:** Settings/Logs/Audit/setup done; the legacy activity graphs and
+  dedicated storage-management UI are not ported (niche operator views).
+- **Share proof flow:** built + renders; not yet exercised against a real created share.
+- **Office/WOPI viewer:** download fallback (needs server-side OnlyOffice/WOPI).
+- **Host connections** live in runtime config (not committed); SSH key entered at
+  connect time (never stored by the build).
