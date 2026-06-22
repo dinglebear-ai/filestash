@@ -66,6 +66,7 @@ export const filesApi = {
     const res = await fetch(`/api/files/cat?path=${encodeURIComponent(path)}`, {
       method: "POST",
       credentials: "include",
+      headers: { "X-Requested-With": "XmlHttpRequest" },
       body,
     });
     if (!res.ok) throw new Error(`upload failed (${res.status})`);

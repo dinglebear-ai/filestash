@@ -43,7 +43,13 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const res = await fetch(buildUrl(path, opts.query), {
     method: opts.method ?? "GET",
     credentials: "include",
-    headers: opts.body ? { "Content-Type": "application/json" } : undefined,
+    // X-Requested-With is required by the Go SecureOrigin middleware to allow
+    // browser requests (the legacy frontend sent it); without it, mutating
+    // endpoints reject with 403 "Not Allowed".
+    headers: {
+      "X-Requested-With": "XmlHttpRequest",
+      ...(opts.body ? { "Content-Type": "application/json" } : {}),
+    },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
     signal: opts.signal,
   });
