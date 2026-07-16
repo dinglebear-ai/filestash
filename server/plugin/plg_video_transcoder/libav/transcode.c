@@ -59,7 +59,11 @@ void ff_set_log_quiet(void) {
 	av_log_set_level(AV_LOG_FATAL);
 }
 
+#if FF_API_AVIO_WRITE_NONCONST
+static int write_packet(void *opaque, uint8_t *buf, int buf_size) {
+#else
 static int write_packet(void *opaque, const uint8_t *buf, int buf_size) {
+#endif
 	return goWriteCallback((uintptr_t)opaque, (uint8_t *)buf, buf_size);
 }
 
@@ -152,9 +156,10 @@ static int add_stream(ctx *c, enum AVMediaType type, const char *enc_name,
 		s->enc->framerate = av_guess_frame_rate(c->ifmt, s->in_stream, NULL);
 		s->enc->sample_aspect_ratio = s->dec->sample_aspect_ratio;
 	} else {
+		s->enc->sample_fmt = s->dec->sample_fmt;
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(61, 19, 100)
 		const enum AVSampleFormat *sfmts = NULL;
 		int nsf = 0;
-		s->enc->sample_fmt = s->dec->sample_fmt;
 		if (avcodec_get_supported_config(NULL, s->enc_codec, AV_CODEC_CONFIG_SAMPLE_FORMAT,
 		                                 0, (const void **)&sfmts, &nsf) >= 0 &&
 		    sfmts && nsf > 0) {
@@ -169,6 +174,16 @@ static int add_stream(ctx *c, enum AVMediaType type, const char *enc_name,
 		} else {
 			av_channel_layout_copy(&s->enc->ch_layout, &s->dec->ch_layout);
 		}
+#else
+		if (s->enc_codec->sample_fmts && s->enc_codec->sample_fmts[0] != AV_SAMPLE_FMT_NONE) {
+			s->enc->sample_fmt = s->enc_codec->sample_fmts[0];
+		}
+		if (s->enc_codec->ch_layouts && s->enc_codec->ch_layouts[0].nb_channels > 0) {
+			av_channel_layout_copy(&s->enc->ch_layout, &s->enc_codec->ch_layouts[0]);
+		} else {
+			av_channel_layout_copy(&s->enc->ch_layout, &s->dec->ch_layout);
+		}
+#endif
 		s->enc->sample_rate = s->dec->sample_rate;
 	}
 
