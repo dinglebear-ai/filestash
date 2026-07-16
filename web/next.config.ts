@@ -1,7 +1,6 @@
 import type { NextConfig } from "next";
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 // Backend target for `next dev` proxying. In production the Go binary serves the
@@ -14,15 +13,29 @@ const EXTRA_DEV_ORIGINS = (process.env.FILESTASH_DEV_ORIGINS ?? "")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+const GENERATED_DIRECTORIES = new Set([
+  ".next",
+  "coverage",
+  "node_modules",
+  "out",
+  "playwright-report",
+  "test-results",
+]);
+
+function frontendSourceFiles(directory: string, prefix = ""): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      return GENERATED_DIRECTORIES.has(entry.name)
+        ? []
+        : frontendSourceFiles(join(directory, entry.name), relativePath);
+    }
+    return [relativePath];
+  });
+}
+
 function frontendBuildId(): string {
-  const files = execFileSync(
-    "git",
-    ["-C", __dirname, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "."],
-    { encoding: "utf8" },
-  )
-    .split("\0")
-    .filter(Boolean)
-    .sort();
+  const files = frontendSourceFiles(__dirname).sort();
   const hash = createHash("sha256");
   for (const file of files) {
     hash.update(file);
