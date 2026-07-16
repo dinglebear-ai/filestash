@@ -21,6 +21,7 @@ const GENERATED_DIRECTORIES = new Set([
   "playwright-report",
   "test-results",
 ]);
+const GENERATED_FILES = new Set(["next-env.d.ts", "tsconfig.tsbuildinfo"]);
 
 function frontendSourceFiles(directory: string, prefix = ""): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -29,6 +30,9 @@ function frontendSourceFiles(directory: string, prefix = ""): string[] {
       return GENERATED_DIRECTORIES.has(entry.name)
         ? []
         : frontendSourceFiles(join(directory, entry.name), relativePath);
+    }
+    if (GENERATED_FILES.has(relativePath)) {
+      return [];
     }
     return [relativePath];
   });
