@@ -141,8 +141,10 @@ jobs:
           load: true
           build-args: BUILD_REF=${{ github.sha }}
           tags: filestash:${{ github.sha }}
-          provenance: mode=max
-          sbom: true
+          # Docker's load exporter cannot import the manifest list produced by
+          # attestations. The dedicated sbom job publishes validated CycloneDX.
+          provenance: false
+          sbom: false
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: filestash:${{ github.sha }}
