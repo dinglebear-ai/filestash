@@ -10,7 +10,7 @@ import (
 
 type AppCache struct {
 	Cache *cache.Cache
-	sync.Mutex
+	mu    *sync.Mutex
 }
 
 func (a *AppCache) Get(key interface{}) interface{} {
@@ -18,8 +18,8 @@ func (a *AppCache) Get(key interface{}) interface{} {
 	if err != nil {
 		return nil
 	}
-	a.Lock()
-	defer a.Unlock()
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	value, found := a.Cache.Get(fmt.Sprintf("%d", hash))
 	if found == false {
 		return nil
@@ -57,7 +57,7 @@ func NewAppCache(arg ...time.Duration) AppCache {
 			cleanup = arg[1]
 		}
 	}
-	c := AppCache{}
+	c := AppCache{mu: &sync.Mutex{}}
 	c.Cache = cache.New(retention*time.Minute, cleanup*time.Minute)
 	return c
 }
@@ -71,7 +71,7 @@ func NewQuickCache(arg ...time.Duration) AppCache {
 			cleanup = arg[1]
 		}
 	}
-	c := AppCache{}
+	c := AppCache{mu: &sync.Mutex{}}
 	c.Cache = cache.New(retention*time.Second, cleanup*time.Second)
 	return c
 }

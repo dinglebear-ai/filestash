@@ -1,40 +1,84 @@
 # Contributing Guide
 
-Thanks for taking the time to join our community and start contributing. This guide will help you get started with the Filestash project.
+Thanks for contributing to Filestash. For changes larger than a typo or a
+well-contained bug fix, open an issue before implementation so the API and
+compatibility impact can be agreed first. Contributions are licensed under the
+project license.
 
-## How to contribute?
+## Prerequisites
 
-### Before you submit a pull request
+- Git and Make
+- Go 1.26.5 and Node 24.18.0 (both are pinned in `.mise.toml`)
+- Native image/video development libraries used by the maintained plugins
 
-For anything else than a typo or a bug fix, please raise an issue to discuss your proposal before submitting any code.
+On Debian/Ubuntu, install the native dependencies with:
 
-### License for contributions
-
-As the copyright owner, you agree to license your contributions under an irrevocable MIT license.
-
-
-### Building from source
-
-*Prerequisites*: Git, Make, Node, Go, Glib 2.0
-
-```
-# Download the source
-git clone https://github.com/mickael-kerjean/filestash
-cd filestash
-
-# Install dependencies
-npm install --legacy-peer-deps # frontend dependencies
-make build_init # install the required static libraries
-mkdir -p ./dist/data/state/
-cp -R config ./dist/data/state/
-
-# Create the build
-make build_frontend
-make build_backend
-
-# Run the program
-./dist/filestash
+```bash
+sudo apt-get install libjpeg-dev libtiff-dev libpng-dev libwebp-dev \
+  libraw-dev libheif-dev libgif-dev libvips-dev libavcodec-dev \
+  libavdevice-dev libavfilter-dev libavformat-dev libswresample-dev \
+  libswscale-dev libavutil-dev
 ```
 
-### Tests
-Our tests aren't open source. This comes as an attempt to restrict opportunistic forks (see [1](https://news.ycombinator.com/item?id=17006902#17009852) and [2](https://www.reddit.com/r/selfhosted/comments/a54axs/annoucing_jellyfin_a_free_software_fork_of_emby/ebk92iu/?utm_source=share&utm_medium=web2x)) from creating a stable release without serious commitment and splitting the community in pieces while I'm on holidays. Also the project welcome serious and willing maintainers.
+With mise installed, `mise install` selects the repository toolchain. The module
+and npm lockfiles are authoritative; normal build and test targets use readonly
+dependency resolution and never run `go get`.
+
+## Build
+
+```bash
+make deps                 # download and verify the locked Go graph
+make frontend-install     # npm ci from web/package-lock.json
+make build                # check/build/stage web, generate Go, build dist/filestash
+```
+
+`make frontend-stage` intentionally replaces the tracked embedded files under
+`public/`. Commit those generated changes whenever frontend source changes. CI
+rebuilds them and fails if the checked-in assets differ.
+
+For a revision-labeled container built from the current checkout:
+
+```bash
+docker build -f docker/Dockerfile \
+  --build-arg BUILD_REF="$(git rev-parse HEAD)" \
+  -t "filestash:$(git rev-parse --short HEAD)" .
+```
+
+The Docker build never clones another branch; `BUILD_REF` must match the checkout.
+
+## Test and release gates
+
+```bash
+make verify       # lint, typecheck, component/unit tests, go vet, Go tests
+make test-race    # race-enabled Go and plugin suite
+make benchmark    # package benchmarks with allocation metrics
+make audit        # govulncheck plus production npm audit
+make sbom         # CycloneDX Go and web SBOMs in dist/
+make ci           # all gates, staged-asset check, readonly graph check, binary
+```
+
+Focused frontend tests live with the React app and browser tests live under
+`web/e2e/`. Go tests use normal `*_test.go` files beside their packages. Tests,
+snapshots, setup files, and lockfiles are source-controlled.
+
+## Development servers
+
+Run the Go server and Next development server separately:
+
+```bash
+DEBUG=true ./dist/filestash
+FILESTASH_API=http://127.0.0.1:8334 npm run dev --prefix web
+```
+
+`DEBUG=true` serves source assets and enables pprof, memory, and active-GC
+operator endpoints. Use it only on a loopback/private development listener and
+never expose it through a public reverse proxy. Production uses the statically
+exported frontend embedded in the Go binary; there is no Node runtime.
+
+## Pull requests
+
+Keep `go.mod`, `go.sum`, `web/package-lock.json`, and staged `public/` assets in
+sync. Do not bypass plugin compile failures by excluding `server/plugin`; document
+intentional platform/CGO constraints instead. Include regression tests for fixes,
+especially authentication, redirects, request limits, cancellation, and shared
+state.

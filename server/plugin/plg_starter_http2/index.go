@@ -25,6 +25,7 @@ import (
 var (
 	SSL_PATH    string
 	config_port func() int
+	httpclient  *http.Client
 )
 
 func init() {
@@ -39,12 +40,10 @@ func init() {
 	Hooks.Register.Starter(func(ctx context.Context, r *mux.Router) {
 		domain := Config.Get("general.host").String()
 		Log.Info("[https] starting ...%s", domain)
-		srv := &http.Server{
-			Addr:      fmt.Sprintf(":%d", config_port()),
-			Handler:   r,
-			TLSConfig: &DefaultTLSConfig,
-			ErrorLog:  NewNilLogger(),
-		}
+		srv := NewHTTPServer(fmt.Sprintf(":%d", config_port()), r)
+		srv.TLSConfig = DefaultTLSConfig.Clone()
+		srv.ErrorLog = NewNilLogger()
+		httpclient = HTTPClient()
 
 		switch domain {
 		case "":
@@ -53,7 +52,7 @@ func init() {
 				return
 			}
 			srv.TLSConfig.Certificates = []tls.Certificate{TLSCert}
-			HTTPClient.Transport.(*TransformedTransport).Orig.(*http.Transport).TLSClientConfig = &tls.Config{
+			httpclient.Transport.(*TransformedTransport).Orig.(*http.Transport).TLSClientConfig = &tls.Config{
 				RootCAs: roots,
 			}
 			HTTP.Transport.(*TransformedTransport).Orig.(*http.Transport).TLSClientConfig = &tls.Config{
@@ -74,7 +73,9 @@ func init() {
 				fmt.Sprintf("[https] started"),
 			)
 			<-ctx.Done()
-			srv.Shutdown(context.Background())
+			if err := ShutdownHTTPServer(srv); err != nil {
+				Log.Warning("[https] graceful shutdown failed: %v", err)
+			}
 		}()
 		if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 			Log.Error("[https]: listen_serve %v", err)
@@ -90,7 +91,7 @@ func ensureAppHasBooted(address string, message string) {
 			break
 		}
 		time.Sleep(250 * time.Millisecond)
-		res, err := HTTPClient.Get(address)
+		res, err := httpclient.Get(address)
 		if err != nil {
 			continue
 		}

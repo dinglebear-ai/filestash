@@ -70,13 +70,12 @@ func ServeFrontofficeHandler(ctx *App, res http.ResponseWriter, req *http.Reques
 		`)))
 		return
 	}
+	// SPA fallback: serve the single shell for any front-office route (the
+	// Next.js client router resolves the screen). API and /assets routes are
+	// matched earlier, so anything reaching here is an app route. (Replaces the
+	// legacy hardcoded route allowlist, which 404'd routes like "/files" without
+	// a trailing slash.)
 	url := TrimBase(req.URL.Path)
-	if url != "/" && strings.HasPrefix(url, "/s/") == false &&
-		strings.HasPrefix(url, "/view/") == false && strings.HasPrefix(url, "/files/") == false &&
-		url != "/login" && url != "/logout" && strings.HasPrefix(url, "/tags") == false {
-		NotFoundHandler(ctx, res, req)
-		return
-	}
 	if url != URL_SETUP && Config.Get("auth.admin").String() == "" {
 		http.Redirect(res, req, URL_SETUP, http.StatusTemporaryRedirect)
 		return
@@ -261,6 +260,12 @@ func ServeIndex(indexPath string) func(*App, http.ResponseWriter, *http.Request)
 			res.WriteHeader(http.StatusNotModified)
 			return
 		}
+		var rendered bytes.Buffer
+		if err := tmpl.Execute(&rendered, templateData); err != nil {
+			Log.Error("static::index template execution failed: %s", err.Error())
+			SendErrorResult(res, ErrInternal)
+			return
+		}
 		var out io.Writer = res
 		if strings.Contains(req.Header.Get("Accept-Encoding"), "gzip") {
 			head.Set("Content-Encoding", "gzip")
@@ -270,7 +275,9 @@ func ServeIndex(indexPath string) func(*App, http.ResponseWriter, *http.Request)
 		}
 		head.Set("Content-Type", "text/html")
 		head.Set("Cache-Control", "no-cache")
-		tmpl.Execute(out, templateData)
+		if _, err := io.Copy(out, &rendered); err != nil {
+			Log.Warning("static::index response write failed: %s", err.Error())
+		}
 	}
 }
 
@@ -464,7 +471,12 @@ func ServeBundle() func(*App, http.ResponseWriter, *http.Request) {
 			chunks, chunksBr, chunksGzip, etags = buildChunks(quality)
 		}
 		chunkIndex := 0
-		if parsed, err := strconv.Atoi(req.URL.Query().Get("chunk")); err == nil {
+		if raw := req.URL.Query().Get("chunk"); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil || parsed < 0 {
+				http.NotFound(res, req)
+				return
+			}
 			chunkIndex = parsed
 		}
 		if chunkIndex >= len(chunks) {

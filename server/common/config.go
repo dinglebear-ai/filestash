@@ -3,6 +3,8 @@ package common
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"os/user"
 	"regexp"
@@ -260,13 +262,21 @@ func (this *Configuration) Initialise() {
 }
 
 func (this *Configuration) Save() {
+	if err := this.SaveE(); err != nil {
+		Log.Error("config::save %s", err.Error())
+	}
+}
+
+func (this *Configuration) SaveE() error {
 	this.mu.RLock()
 	formBytes, err := formToJSON(Form{Form: this.Form}, func(el FormElement) any { return el.Value })
-	conn, _ := json.Marshal(this.Conn)
+	conn, connErr := json.Marshal(this.Conn)
 	this.mu.RUnlock()
 	if err != nil {
-		Log.Error("config::save marshal %s", err.Error())
-		return
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	if connErr != nil {
+		return fmt.Errorf("marshal connections: %w", connErr)
 	}
 	var buf bytes.Buffer
 	buf.WriteByte('{')
@@ -278,8 +288,140 @@ func (this *Configuration) Save() {
 	buf.WriteString(`"connections":`)
 	buf.Write(conn)
 	buf.WriteByte('}')
-	if err := SaveConfig(PrettyPrint(buf.Bytes())); err != nil {
-		Log.Error("config::save %s", err.Error())
+	return SaveConfig(PrettyPrint(buf.Bytes()))
+}
+
+func (this *Configuration) ApplyPatch(raw []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var patch map[string]any
+	if err := decoder.Decode(&patch); err != nil {
+		return fmt.Errorf("decode config: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return fmt.Errorf("decode config: trailing data")
+	}
+	if patch == nil {
+		return ErrNotValid
+	}
+
+	type changedValue struct {
+		element *FormElement
+		value   any
+	}
+	changed := []changedValue{}
+	this.mu.Lock()
+	previousConnections := append([]map[string]any(nil), this.Conn...)
+	var applyForms func([]Form, map[string]any) error
+	applyForms = func(forms []Form, node map[string]any) error {
+		for i := range forms {
+			formNode, ok := node[strings.ReplaceAll(forms[i].Title, " ", "_")].(map[string]any)
+			if !ok {
+				continue
+			}
+			for j := range forms[i].Elmnts {
+				el := &forms[i].Elmnts[j]
+				value, exists := formNode[strings.ReplaceAll(el.Name, " ", "_")]
+				if !exists || el.ReadOnly {
+					continue
+				}
+				if obj, ok := value.(map[string]any); ok {
+					value, exists = obj["value"]
+					if !exists {
+						continue
+					}
+				}
+				coerced, err := coerceConfigValue(el.Type, value)
+				if err != nil {
+					return fmt.Errorf("%s.%s: %w", forms[i].Title, el.Name, err)
+				}
+				changed = append(changed, changedValue{el, el.Value})
+				el.Value = coerced
+			}
+			if err := applyForms(forms[i].Form, formNode); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	err := applyForms(this.Form, patch)
+	if err == nil {
+		if connections, exists := patch["connections"]; exists {
+			encoded, marshalErr := json.Marshal(connections)
+			if marshalErr != nil {
+				err = marshalErr
+			} else {
+				var next []map[string]any
+				if unmarshalErr := json.Unmarshal(encoded, &next); unmarshalErr != nil {
+					err = unmarshalErr
+				} else {
+					this.Conn = next
+				}
+			}
+		}
+	}
+	this.cache.Clear()
+	this.mu.Unlock()
+	if err == nil {
+		err = this.SaveE()
+	}
+	if err != nil {
+		this.mu.Lock()
+		for _, item := range changed {
+			item.element.Value = item.value
+		}
+		this.Conn = previousConnections
+		this.cache.Clear()
+		this.mu.Unlock()
+		return err
+	}
+	Log.SetVisibility(this.Get("log.level").String())
+	for _, fn := range Hooks.Get.OnConfig() {
+		fn()
+	}
+	return nil
+}
+
+func coerceConfigValue(kind string, value any) (any, error) {
+	switch kind {
+	case "number":
+		switch v := value.(type) {
+		case json.Number:
+			n, err := strconv.Atoi(v.String())
+			return n, err
+		case string:
+			n, err := strconv.Atoi(strings.TrimSpace(v))
+			return n, err
+		case float64:
+			return int(v), nil
+		case int:
+			return v, nil
+		default:
+			return nil, fmt.Errorf("expected number")
+		}
+	case "boolean", "enable":
+		switch v := value.(type) {
+		case bool:
+			return v, nil
+		case string:
+			return strconv.ParseBool(strings.TrimSpace(v))
+		default:
+			return nil, fmt.Errorf("expected boolean")
+		}
+	case "bcrypt":
+		v, ok := value.(string)
+		if !ok || (!strings.HasPrefix(v, "$2a$") && !strings.HasPrefix(v, "$2b$") && !strings.HasPrefix(v, "$2y$")) {
+			return nil, fmt.Errorf("expected bcrypt hash")
+		}
+		return v, nil
+	default:
+		if value == nil {
+			return "", nil
+		}
+		if _, ok := value.(string); !ok {
+			return nil, fmt.Errorf("expected string")
+		}
+		return value, nil
 	}
 }
 
@@ -461,6 +603,12 @@ func (this *ConfigElement) Int() int {
 		return int(v)
 	case int:
 		return v
+	case json.Number:
+		n, _ := strconv.Atoi(v.String())
+		return n
+	case string:
+		n, _ := strconv.Atoi(strings.TrimSpace(v))
+		return n
 	}
 	return 0
 }

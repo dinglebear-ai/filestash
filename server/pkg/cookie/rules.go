@@ -20,6 +20,7 @@ func WithRules(req *http.Request) option {
 	return func(c *http.Cookie) {
 		c.HttpOnly = true
 		c.SameSite = http.SameSiteStrictMode
+		c.Secure = req.TLS != nil || strings.EqualFold(req.Header.Get("X-Forwarded-Proto"), "https") || Config.Get("general.force_ssl").Bool()
 		if Config.Get("features.protection.iframe").String() != "" {
 			if f := req.Header.Get("Referer"); strings.HasPrefix(f, "https://") {
 				c.Secure = true

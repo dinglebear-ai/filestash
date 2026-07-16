@@ -10,9 +10,11 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
@@ -132,6 +134,13 @@ func TTYHandler(pathPrefix string) http.Handler {
 
 		if req.Method == "GET" {
 			if req.URL.Path == "/" {
+				nonce := RandomString(48)
+				consoleNonces.Store(nonce, consoleNonce{expiresAt: time.Now().Add(2 * time.Minute)})
+				http.SetCookie(res, &http.Cookie{
+					Name: "filestash_tty_nonce", Value: nonce, Path: pathPrefix,
+					MaxAge: 120, HttpOnly: true, Secure: req.TLS != nil,
+					SameSite: http.SameSiteStrictMode,
+				})
 				res.Header().Set("Content-Type", "text/html")
 				res.Write(htmlIndex(pathPrefix))
 				return
@@ -149,15 +158,42 @@ func TTYHandler(pathPrefix string) http.Handler {
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
+	CheckOrigin:     sameConsoleOrigin,
 }
-var resizeMessage = struct {
+
+func sameConsoleOrigin(req *http.Request) bool {
+	origin, err := url.Parse(req.Header.Get("Origin"))
+	return err == nil && (origin.Scheme == "https" || origin.Scheme == "http") && strings.EqualFold(origin.Host, req.Host)
+}
+
+var consoleNonces sync.Map
+
+type consoleNonce struct {
+	expiresAt time.Time
+}
+
+type resizeMessage struct {
 	Rows uint16 `json:"rows"`
 	Cols uint16 `json:"cols"`
 	X    uint16
 	Y    uint16
-}{}
+}
 
 func handleSocket(res http.ResponseWriter, req *http.Request) {
+	if !sameConsoleOrigin(req) {
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+	nonceCookie, err := req.Cookie("filestash_tty_nonce")
+	if err != nil {
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
+	nonceValue, ok := consoleNonces.LoadAndDelete(nonceCookie.Value)
+	if !ok || time.Now().After(nonceValue.(consoleNonce).expiresAt) {
+		http.Error(res, "Forbidden", http.StatusForbidden)
+		return
+	}
 	conn, err := upgrader.Upgrade(res, req, nil)
 	if err != nil {
 		res.WriteHeader(http.StatusInternalServerError)
@@ -165,6 +201,8 @@ func handleSocket(res http.ResponseWriter, req *http.Request) {
 		return
 	}
 	defer conn.Close()
+	conn.SetReadLimit(64 << 10)
+	conn.SetReadDeadline(time.Now().Add(30 * time.Minute))
 
 	var cmd *exec.Cmd
 	if _, err = exec.LookPath("/bin/bash"); err == nil {
@@ -246,8 +284,9 @@ EOF
 				continue
 			}
 		case 1:
+			var resize resizeMessage
 			decoder := json.NewDecoder(reader)
-			if err := decoder.Decode(&resizeMessage); err != nil {
+			if err := decoder.Decode(&resize); err != nil {
 				conn.WriteMessage(websocket.TextMessage, []byte("Error decoding resize message: "+err.Error()))
 				continue
 			}
@@ -255,7 +294,7 @@ EOF
 				syscall.SYS_IOCTL,
 				tty.Fd(),
 				syscall.TIOCSWINSZ,
-				uintptr(unsafe.Pointer(&resizeMessage)),
+				uintptr(unsafe.Pointer(&resize)),
 			); errno != 0 {
 				conn.WriteMessage(websocket.TextMessage, []byte("Unable to resize terminal: "+err.Error()))
 			}

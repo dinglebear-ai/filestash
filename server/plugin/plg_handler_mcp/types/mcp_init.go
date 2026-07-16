@@ -12,7 +12,7 @@ type ServerInfo struct {
 }
 
 type Capabilities struct {
-	Tools     map[string]interface{} `json:"tools",omitempty`
-	Resources map[string]interface{} `json:"resources",omitempty`
-	Prompts   map[string]interface{} `json:"prompts",omitempty`
+	Tools     map[string]interface{} `json:"tools,omitempty"`
+	Resources map[string]interface{} `json:"resources,omitempty"`
+	Prompts   map[string]interface{} `json:"prompts,omitempty"`
 }

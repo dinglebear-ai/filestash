@@ -1,0 +1,13 @@
+dist
+docs
+node_modules
+**/node_modules
+*_generated.go
+web/.next
+web/out
+web/playwright-report
+web/test-results
+.full-review
+.beads
+.claude
+*.log

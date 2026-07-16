@@ -494,6 +494,15 @@ func (this LDAP) autocompleteLDAP(filter string, value string) []string {
 
 func (this LDAP) generateLDAP(name string, deflts string) string {
 	d := strings.Split(deflts, "-")
+	title := func(value string) string {
+		words := strings.Fields(strings.ToLower(value))
+		for i := range words {
+			if len(words[i]) > 0 {
+				words[i] = strings.ToUpper(words[i][:1]) + words[i][1:]
+			}
+		}
+		return strings.Join(words, " ")
+	}
 	switch name {
 	case "cn":
 		return strings.ToLower(deflts)
@@ -517,14 +526,14 @@ func (this LDAP) generateLDAP(name string, deflts string) string {
 		return "65534"
 	case "sn":
 		if len(d) == 2 {
-			return strings.Title(d[1])
+			return title(d[1])
 		}
-		return strings.Title(strings.Join(d, " "))
+		return title(strings.Join(d, " "))
 	case "givenName":
 		if len(d) == 2 {
-			return strings.Title(d[0])
+			return title(d[0])
 		}
-		return strings.Title(strings.Join(d, " "))
+		return title(strings.Join(d, " "))
 	default:
 		return deflts
 	}

@@ -17,6 +17,7 @@ import (
 	sshgit "github.com/go-git/go-git/v6/plumbing/transport/ssh"
 	. "github.com/mickael-kerjean/filestash/server/common"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 var git_cache AppCache
@@ -418,6 +419,10 @@ func (g *GitLib) auth() ([]client.Option, error) {
 		}
 		return false
 	}
+	hostKeyCallback, err := gitHostKeyCallback()
+	if err != nil {
+		return nil, err
+	}
 
 	if isPrivateKey(g.params.password) {
 		signer, err := ssh.ParsePrivateKeyWithPassphrase([]byte(g.params.password), []byte(g.params.passphrase))
@@ -428,7 +433,7 @@ func (g *GitLib) auth() ([]client.Option, error) {
 			User:   "git",
 			Signer: signer,
 			HostKeyCallbackHelper: sshgit.HostKeyCallbackHelper{
-				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+				HostKeyCallback: hostKeyCallback,
 			},
 		})}, nil
 	}
@@ -437,9 +442,25 @@ func (g *GitLib) auth() ([]client.Option, error) {
 		User:     g.params.username,
 		Password: g.params.password,
 		HostKeyCallbackHelper: sshgit.HostKeyCallbackHelper{
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			HostKeyCallback: hostKeyCallback,
 		},
 	})}, nil
+}
+
+func gitHostKeyCallback() (ssh.HostKeyCallback, error) {
+	knownHostsPath := strings.TrimSpace(os.Getenv("SSH_KNOWN_HOSTS"))
+	if knownHostsPath == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("resolve home for SSH known_hosts: %w", err)
+		}
+		knownHostsPath = filepath.Join(home, ".ssh", "known_hosts")
+	}
+	callback, err := knownhosts.New(knownHostsPath)
+	if err != nil {
+		return nil, fmt.Errorf("load SSH known_hosts %q: %w", knownHostsPath, err)
+	}
+	return callback, nil
 }
 
 func (g *GitLib) message(action string, path string) string {

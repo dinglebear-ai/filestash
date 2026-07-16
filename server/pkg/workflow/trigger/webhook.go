@@ -1,12 +1,15 @@
 package trigger
 
 import (
-	"bytes"
-	"html/template"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 	"net/http"
 	"strings"
 
 	. "github.com/mickael-kerjean/filestash/server/common"
+	"github.com/mickael-kerjean/filestash/server/middleware"
 	. "github.com/mickael-kerjean/filestash/server/pkg/workflow/model"
 
 	"github.com/gorilla/mux"
@@ -15,20 +18,13 @@ import (
 var (
 	webhook_event = make(chan ITriggerEvent, 5)
 	webhook_name  = "webhook"
-	webhookTmpl   = template.Must(template.New("webhook").Parse(`
-		<h1>Triggers</h1>
-		<ul>
-			{{range .}}<li><a href="?id={{.ID}}">{{.Name}}</a></li>{{end}}
-		</ul>
-		<style>ul { list-style-type: none; padding: 0; }</style>
-	`))
 )
 
 func init() {
 	Hooks.Register.WorkflowTrigger(&WebhookTrigger{})
 }
 
-func webhookCallback(r *http.Request, id string) func(w Workflow) (map[string]string, bool) {
+func webhookCallback(r *http.Request, id string, body []byte) func(w Workflow) (map[string]string, bool) {
 	return func(w Workflow) (map[string]string, bool) {
 		headers := map[string]any{}
 		for k, v := range r.Header {
@@ -42,9 +38,7 @@ func webhookCallback(r *http.Request, id string) func(w Workflow) (map[string]st
 			"method":  r.Method,
 			"headers": toJSON(headers),
 			"query":   toJSON(query),
-		}
-		if id == "" {
-			return out, true
+			"body":    string(body),
 		}
 		return out, id == w.ID
 	}
@@ -65,6 +59,12 @@ func (this *WebhookTrigger) Manifest() WorkflowSpecs {
 					ReadOnly: true,
 					Value:    "/api/workflow/webhook?web",
 				},
+				{
+					Name:        "secret",
+					Type:        "password",
+					Required:    true,
+					Description: "A random secret of at least 32 characters used to sign webhook requests",
+				},
 			},
 		},
 		Order: 5,
@@ -73,29 +73,43 @@ func (this *WebhookTrigger) Manifest() WorkflowSpecs {
 
 func (this *WebhookTrigger) Init() (chan ITriggerEvent, error) {
 	Hooks.Register.HttpEndpoint(func(r *mux.Router) error {
-		r.HandleFunc(WithBase("/api/workflow/webhook"), func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Query().Has("web") && strings.Contains(r.Header.Get("Accept"), "text/html") {
-				workflows, err := FindWorkflows(webhook_name)
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				var buf bytes.Buffer
-				if err := webhookTmpl.Execute(&buf, workflows); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				w.Header().Set("Content-Type", "text/html")
-				w.Write([]byte(Page(buf.String())))
+		handler := func(_ *App, w http.ResponseWriter, r *http.Request) {
+			id := r.URL.Query().Get("id")
+			if id == "" {
+				SendErrorResult(w, ErrNotValid)
 				return
 			}
-
-			if err := TriggerEvents(webhook_event, webhook_name, webhookCallback(r, r.URL.Query().Get("id"))); err != nil {
+			workflow, err := GetWorkflow(id)
+			if err != nil || workflow.Name == "" || workflow.Trigger.Name != webhook_name || !workflow.Published {
+				SendErrorResult(w, ErrNotFound)
+				return
+			}
+			secret := workflow.Trigger.Params["secret"]
+			if len(secret) < 32 {
+				SendErrorResult(w, ErrPermissionDenied)
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, 256<<10)
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				SendErrorResult(w, NewError("Request body too large", http.StatusRequestEntityTooLarge))
+				return
+			}
+			signature := strings.TrimPrefix(r.Header.Get("X-Filestash-Webhook-Signature"), "sha256=")
+			expectedMAC := hmac.New(sha256.New, []byte(secret))
+			expectedMAC.Write(body)
+			providedMAC, decodeErr := hex.DecodeString(signature)
+			if decodeErr != nil || !hmac.Equal(providedMAC, expectedMAC.Sum(nil)) {
+				SendErrorResult(w, ErrPermissionDenied)
+				return
+			}
+			if err := TriggerEvents(webhook_event, webhook_name, webhookCallback(r, id, body)); err != nil {
 				SendErrorResult(w, err)
 				return
 			}
 			SendSuccessResult(w, nil)
-		}).Methods("GET", "POST")
+		}
+		r.HandleFunc(WithBase("/api/workflow/webhook"), middleware.NewMiddlewareChain(handler, []Middleware{middleware.RateLimiter})).Methods(http.MethodPost)
 		return nil
 	})
 	return webhook_event, nil

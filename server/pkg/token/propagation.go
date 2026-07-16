@@ -19,9 +19,9 @@ func Extract(req *http.Request) string {
 	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
 		return strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
 	}
-	// strategy 3: Authorization query param
-	if auth := req.URL.Query().Get("authorization"); auth != "" {
-		return auth
+	// strategy 3: Authorization from basic auth
+	if username, password, ok := req.BasicAuth(); ok && username == "authorization" {
+		return password
 	}
 	return ""
 }

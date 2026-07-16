@@ -13,7 +13,7 @@ import (
 
 type daemonState struct {
 	discovery bool
-	idx       []Crawler
+	idx       []*Crawler
 	n         int
 	mu        sync.RWMutex
 }
@@ -21,7 +21,7 @@ type daemonState struct {
 func NewDaemon(withDiscovery bool) daemonState {
 	return daemonState{
 		discovery: withDiscovery,
-		idx:       make([]Crawler, 0),
+		idx:       make([]*Crawler, 0),
 		n:         -1,
 	}
 }
@@ -35,7 +35,7 @@ type Crawler struct {
 	mu             sync.Mutex
 }
 
-func (this *daemonState) createCrawler(app *App) (Crawler, error) {
+func (this *daemonState) createCrawler(app *App) (*Crawler, error) {
 	id := GenerateID(app.Session)
 	idpath := id
 	if SEARCH_SHARED_INDEX() {
@@ -48,13 +48,13 @@ func (this *daemonState) createCrawler(app *App) (Crawler, error) {
 		FoldersUnknown: make(HeapDoc, 0, 1),
 	}
 	if err := s.State.Init(); err != nil {
-		return s, err
+		return nil, err
 	}
 	heap.Init(&s.FoldersUnknown)
-	return s, nil
+	return &s, nil
 }
 
-func (this *daemonState) GetCrawler(app *App, create bool) (Crawler, error) {
+func (this *daemonState) GetCrawler(app *App, create bool) (*Crawler, error) {
 	id := GenerateID(app.Session)
 	this.mu.RLock()
 	defer this.mu.RUnlock()
@@ -64,7 +64,7 @@ func (this *daemonState) GetCrawler(app *App, create bool) (Crawler, error) {
 		}
 	}
 	if create == false {
-		return Crawler{}, ErrNotFound
+		return nil, ErrNotFound
 	}
 	return this.createCrawler(app)
 }
@@ -80,7 +80,7 @@ func (this *daemonState) NextCrawler() *Crawler {
 	} else {
 		this.n = this.n + 1
 	}
-	return &this.idx[this.n]
+	return this.idx[this.n]
 }
 
 func (this *daemonState) HintLs(app *App, path string) {

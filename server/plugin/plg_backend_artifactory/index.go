@@ -252,15 +252,18 @@ func (this ArtifactoryStorage) Mkdir(path string) error {
 		)
 		validStatus = 200
 	} else { // https://www.jfrog.com/confluence/display/JFROG/Artifactory+REST+API#ArtifactoryRESTAPI-CreateDirectory
+		payload, marshalErr := json.Marshal(map[string]string{
+			"key":     this.instance + path,
+			"repo":    p.repository,
+			"path":    path,
+			"created": time.Now().UTC().Format(time.RFC3339),
+		})
+		if marshalErr != nil {
+			return marshalErr
+		}
 		req, err = http.NewRequest(
 			"PUT", fmt.Sprintf("%s/artifactory%s", this.instance, path),
-			bytes.NewReader([]byte(fmt.Sprintf(`{
-              "key": "%s%s",
-              "repo": "%s",
-              "path": "%s",
-              "created": "%s"
-    		}`, this.instance, path, p.repository, path,
-			))),
+			bytes.NewReader(payload),
 		)
 		validStatus = 201
 	}

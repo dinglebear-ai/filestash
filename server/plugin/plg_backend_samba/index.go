@@ -1,7 +1,6 @@
 package plg_backend_samba
 
 import (
-	"fmt"
 	"io"
 	"net"
 	"net/url"
@@ -63,7 +62,7 @@ func (smb Samba) Init(params map[string]string, app *App) (IBackend, error) {
 		return c.(*Samba), nil
 	}
 
-	host := fmt.Sprintf("%s:%s", params["host"], params["port"])
+	host := net.JoinHostPort(params["host"], params["port"])
 	conn, err := net.DialTimeout("tcp", host, 10*time.Second)
 	if err != nil {
 		Log.Debug("plg_backend_samba::netdial host[%s] err[%s]", host, err.Error())

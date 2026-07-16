@@ -1,9 +1,13 @@
 package plg_handler_mcp
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -16,15 +20,28 @@ const (
 	DEFAULT_SECRET_EXPIRY = 30 * 24 * 3600
 )
 
-var KEY_FOR_CODE string
-
-func init() {
-	Hooks.Register.Onload(func() {
-		KEY_FOR_CODE = Hash("MCP_CODE_"+SECRET_KEY, len(SECRET_KEY))
-	})
+type oauthClient struct {
+	RedirectURIs map[string]struct{}
+	ExpiresAt    time.Time
 }
 
-func (this Server) WellKnownOAuthAuthorizationServerHandler(_ *App, w http.ResponseWriter, r *http.Request) {
+type oauthRequest struct {
+	ClientID      string
+	RedirectURI   string
+	State         string
+	CodeChallenge string
+	ExpiresAt     time.Time
+}
+
+type oauthCode struct {
+	AccessToken   string
+	ClientID      string
+	RedirectURI   string
+	CodeChallenge string
+	ExpiresAt     time.Time
+}
+
+func (this *Server) WellKnownOAuthAuthorizationServerHandler(_ *App, w http.ResponseWriter, r *http.Request) {
 	baseURL := this.baseURL(r)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -43,7 +60,7 @@ func (this Server) WellKnownOAuthAuthorizationServerHandler(_ *App, w http.Respo
 	})
 }
 
-func (this Server) WellKnownOAuthProtectedResourceHandler(_ *App, w http.ResponseWriter, r *http.Request) {
+func (this *Server) WellKnownOAuthProtectedResourceHandler(_ *App, w http.ResponseWriter, r *http.Request) {
 	baseURL := this.baseURL(r)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -54,7 +71,7 @@ func (this Server) WellKnownOAuthProtectedResourceHandler(_ *App, w http.Respons
 	})
 }
 
-func (this Server) baseURL(r *http.Request) string {
+func (this *Server) baseURL(r *http.Request) string {
 	scheme := "https"
 	host := r.Host
 	if strings.HasPrefix(host, "localhost") || strings.HasPrefix(host, "127.0.0.1") {
@@ -63,11 +80,13 @@ func (this Server) baseURL(r *http.Request) string {
 	return fmt.Sprintf("%s://%s", scheme, host)
 }
 
-func (this Server) AuthorizeHandler(_ *App, w http.ResponseWriter, r *http.Request) {
+func (this *Server) AuthorizeHandler(ctx *App, w http.ResponseWriter, r *http.Request) {
 	responseType := r.URL.Query().Get("response_type")
 	clientID := r.URL.Query().Get("client_id")
 	redirectURI := r.URL.Query().Get("redirect_uri")
 	state := r.URL.Query().Get("state")
+	codeChallenge := r.URL.Query().Get("code_challenge")
+	codeChallengeMethod := r.URL.Query().Get("code_challenge_method")
 
 	if responseType != "code" {
 		http.Error(w, "response_type must be 'code'", http.StatusBadRequest)
@@ -78,14 +97,46 @@ func (this Server) AuthorizeHandler(_ *App, w http.ResponseWriter, r *http.Reque
 	} else if redirectURI == "" {
 		http.Error(w, "redirect_uri is required", http.StatusBadRequest)
 		return
+	} else if codeChallengeMethod != "S256" || len(codeChallenge) < 43 || len(codeChallenge) > 128 {
+		http.Error(w, "S256 PKCE is required", http.StatusBadRequest)
+		return
 	}
-	http.Redirect(w, r, fmt.Sprintf(
-		"/login?next=/api/mcp?redirect_uri=%s%%26state=%s%%26client_id=%s",
-		redirectURI, state, clientID,
-	), http.StatusSeeOther)
+	clientValue, ok := this.clients.Load(clientID)
+	if !ok {
+		http.Error(w, "unknown client_id", http.StatusBadRequest)
+		return
+	}
+	client := clientValue.(oauthClient)
+	if time.Now().After(client.ExpiresAt) {
+		this.clients.Delete(clientID)
+		http.Error(w, "expired client_id", http.StatusBadRequest)
+		return
+	}
+	if _, ok := client.RedirectURIs[redirectURI]; !ok {
+		http.Error(w, "redirect_uri does not match registration", http.StatusBadRequest)
+		return
+	}
+	requestID := RandomString(48)
+	this.requests.Store(requestID, oauthRequest{
+		ClientID: clientID, RedirectURI: redirectURI, State: state,
+		CodeChallenge: codeChallenge, ExpiresAt: time.Now().Add(5 * time.Minute),
+	})
+	cookieValue, next, err := NewMCPOAuthContinuation(requestID)
+	if err != nil {
+		this.requests.Delete(requestID)
+		http.Error(w, "could not create authorization request", http.StatusInternalServerError)
+		return
+	}
+	setOAuthContinuationCookie(w, r, cookieValue, 5*time.Minute)
+	if ctx != nil && ctx.Backend != nil && ctx.Authorization != "" {
+		http.Redirect(w, r, next, http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, WithBase("/login")+"?"+url.Values{"next": []string{next}}.Encode(), http.StatusSeeOther)
 }
 
-func (this Server) TokenHandler(_ *App, w http.ResponseWriter, r *http.Request) {
+func (this *Server) TokenHandler(_ *App, w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
@@ -94,24 +145,57 @@ func (this Server) TokenHandler(_ *App, w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Invalid Grant Type", http.StatusBadRequest)
 		return
 	}
-	token, err := DecryptString(KEY_FOR_CODE, r.FormValue("code"))
-	if err != nil {
+	codeValue, ok := this.codes.LoadAndDelete(r.FormValue("code"))
+	if !ok {
 		http.Error(w, "Invalid authorization code", http.StatusBadRequest)
+		return
+	}
+	code := codeValue.(oauthCode)
+	verifier := r.FormValue("code_verifier")
+	digest := sha256.Sum256([]byte(verifier))
+	actualChallenge := base64.RawURLEncoding.EncodeToString(digest[:])
+	if time.Now().After(code.ExpiresAt) || code.ClientID != r.FormValue("client_id") ||
+		code.RedirectURI != r.FormValue("redirect_uri") || len(verifier) < 43 ||
+		len(actualChallenge) != len(code.CodeChallenge) || subtle.ConstantTimeCompare([]byte(actualChallenge), []byte(code.CodeChallenge)) != 1 {
+		http.Error(w, "Invalid authorization code binding", http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"access_token": token,
+		"access_token": code.AccessToken,
 		"token_type":   "Bearer",
+		"expires_in":   DEFAULT_TOKEN_EXPIRY,
 	})
 }
 
-func (this Server) RegisterHandler(ctx *App, w http.ResponseWriter, r *http.Request) {
+func (this *Server) RegisterHandler(ctx *App, w http.ResponseWriter, r *http.Request) {
 	clientName := regexp.MustCompile("[^a-zA-Z0-9\\-]+").ReplaceAllString(
 		fmt.Sprintf("%s", ctx.Body["client_name"]),
 		"",
 	)
-	clientID := clientName + "." + Hash(clientName+time.Now().String(), 8)
+	if clientName == "" {
+		http.Error(w, "client_name is required", http.StatusBadRequest)
+		return
+	}
+	redirectValues, ok := ctx.Body["redirect_uris"].([]interface{})
+	if !ok || len(redirectValues) == 0 || len(redirectValues) > 10 {
+		http.Error(w, "redirect_uris must contain between 1 and 10 entries", http.StatusBadRequest)
+		return
+	}
+	redirectURIs := make([]string, 0, len(redirectValues))
+	registered := make(map[string]struct{}, len(redirectValues))
+	for _, raw := range redirectValues {
+		redirectURI, ok := raw.(string)
+		if !ok || !validOAuthRedirectURI(redirectURI) {
+			http.Error(w, "invalid redirect_uri", http.StatusBadRequest)
+			return
+		}
+		redirectURIs = append(redirectURIs, redirectURI)
+		registered[redirectURI] = struct{}{}
+	}
+	clientID := clientName + "." + RandomString(24)
+	expiresAt := time.Now().Add(DEFAULT_SECRET_EXPIRY * time.Second)
+	this.clients.Store(clientID, oauthClient{RedirectURIs: registered, ExpiresAt: expiresAt})
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(struct {
@@ -125,31 +209,82 @@ func (this Server) RegisterHandler(ctx *App, w http.ResponseWriter, r *http.Requ
 		TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
 	}{
 		ClientID:                clientID,
-		ClientSecret:            Hash(clientID, 32), // unused. eg: chatgpt act as public client
+		ClientSecret:            "",
 		ClientIDIssuedAt:        time.Now().Unix(),
-		ClientSecretExpiresAt:   time.Now().Unix() + DEFAULT_SECRET_EXPIRY,
+		ClientSecretExpiresAt:   expiresAt.Unix(),
 		ClientName:              clientName,
-		RedirectURIs:            []string{},
+		RedirectURIs:            redirectURIs,
 		GrantTypes:              []string{"authorization_code"},
 		TokenEndpointAuthMethod: "none",
 	})
 }
 
-func (this Server) CallbackHandler(ctx *App, res http.ResponseWriter, req *http.Request) {
-	uri := req.URL.Query().Get("redirect_uri")
-	state := req.URL.Query().Get("state")
-	if uri == "" {
-		SendErrorResult(res, ErrNotValid)
-		return
-	}
-	code, err := EncryptString(KEY_FOR_CODE, ctx.Authorization)
+func (this *Server) CallbackHandler(ctx *App, res http.ResponseWriter, req *http.Request) {
+	requestID := req.URL.Query().Get("request_id")
+	cookie, err := req.Cookie(MCPOAuthContinuationCookie)
 	if err != nil {
 		SendErrorResult(res, ErrNotValid)
 		return
 	}
-	uri += "?code=" + code
-	if state != "" {
-		uri += "&state=" + state
+	boundRequestID, callback, err := ParseMCPOAuthContinuation(cookie.Value)
+	if err != nil || boundRequestID != requestID || req.URL.RequestURI() != callback {
+		SendErrorResult(res, ErrNotValid)
+		return
 	}
-	http.Redirect(res, req, uri, http.StatusSeeOther)
+	requestValue, ok := this.requests.LoadAndDelete(requestID)
+	if !ok {
+		SendErrorResult(res, ErrNotValid)
+		return
+	}
+	setOAuthContinuationCookie(res, req, "", -time.Hour)
+	authRequest := requestValue.(oauthRequest)
+	if time.Now().After(authRequest.ExpiresAt) {
+		SendErrorResult(res, ErrNotValid)
+		return
+	}
+	code := RandomString(48)
+	this.codes.Store(code, oauthCode{
+		AccessToken: ctx.Authorization, ClientID: authRequest.ClientID,
+		RedirectURI: authRequest.RedirectURI, CodeChallenge: authRequest.CodeChallenge,
+		ExpiresAt: time.Now().Add(2 * time.Minute),
+	})
+	redirect, _ := url.Parse(authRequest.RedirectURI)
+	query := redirect.Query()
+	query.Set("code", code)
+	if authRequest.State != "" {
+		query.Set("state", authRequest.State)
+	}
+	redirect.RawQuery = query.Encode()
+	http.Redirect(res, req, redirect.String(), http.StatusSeeOther)
+}
+
+func setOAuthContinuationCookie(res http.ResponseWriter, req *http.Request, value string, lifetime time.Duration) {
+	maxAge := int(lifetime.Seconds())
+	if lifetime < 0 {
+		maxAge = -1
+	}
+	http.SetCookie(res, &http.Cookie{
+		Name:     MCPOAuthContinuationCookie,
+		Value:    value,
+		Path:     WithBase("/"),
+		MaxAge:   maxAge,
+		HttpOnly: true,
+		Secure:   req.TLS != nil || strings.EqualFold(req.Header.Get("X-Forwarded-Proto"), "https"),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func validOAuthRedirectURI(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || !u.IsAbs() || u.Host == "" || u.Fragment != "" || u.User != nil {
+		return false
+	}
+	if u.Scheme == "https" {
+		return true
+	}
+	if u.Scheme != "http" {
+		return false
+	}
+	host := u.Hostname()
+	return host == "localhost" || strings.HasPrefix(host, "127.") || host == "::1"
 }

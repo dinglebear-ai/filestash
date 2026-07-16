@@ -19,7 +19,7 @@ type StepIndexer struct {
 }
 
 type SearchDaemon interface {
-	GetCrawler(app *App, force bool) (Crawler, error)
+	GetCrawler(app *App, force bool) (*Crawler, error)
 }
 
 var runningIndexers sync.Map

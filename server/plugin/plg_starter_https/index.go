@@ -20,13 +20,11 @@ func init() {
 		domain := Config.Get("general.host").String()
 		port := Config.Get("general.port").Int()
 		Log.Info("[https] starting ...%s", domain)
-		srv := &http.Server{
-			Addr:         fmt.Sprintf(":%d", port),
-			Handler:      r,
-			TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler), 0),
-			TLSConfig:    &DefaultTLSConfig,
-			ErrorLog:     NewNilLogger(),
-		}
+		srv := NewHTTPServer(fmt.Sprintf(":%d", port), r)
+		srv.TLSNextProto = make(map[string]func(*http.Server, *tls.Conn, http.Handler), 0)
+		tlsConfig := DefaultTLSConfig.Clone()
+		srv.TLSConfig = tlsConfig
+		srv.ErrorLog = NewNilLogger()
 
 		TLSCert, roots, err := ssl.GenerateSelfSigned()
 		if err != nil {
@@ -48,7 +46,9 @@ func init() {
 				fmt.Sprintf("[https] listening on :%d", port),
 			)
 			<-ctx.Done()
-			srv.Shutdown(context.Background())
+			if err := ShutdownHTTPServer(srv); err != nil {
+				Log.Warning("[https] graceful shutdown failed: %v", err)
+			}
 		}()
 		if err := srv.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 			Log.Error("[https]: listen_serve %v", err)

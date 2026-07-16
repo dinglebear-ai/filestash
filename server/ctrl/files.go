@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash"
 	"hash/crc32"
@@ -18,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	. "github.com/mickael-kerjean/filestash/server/common"
@@ -38,6 +40,14 @@ var (
 	zip_timeout func() int
 	disable_csp func() bool
 )
+
+const (
+	maxActiveChunkedUploads = 32
+	maxChunkedUploadSize    = uint64(1 << 40)
+	maxChunkedUploadPatch   = uint64(64 << 20)
+)
+
+var activeChunkedUploads atomic.Int64
 
 func init() {
 	zip_timeout = func() int {
@@ -143,12 +153,21 @@ func FileLs(ctx *App, res http.ResponseWriter, req *http.Request) {
 		perms.CanShare = NewBool(false)
 	}
 
-	entries, err := ctx.Backend.Ls(path)
+	limit, cursor, explicitlyPaged, err := directoryPageParams(req)
+	if err != nil {
+		SendErrorResult(res, err)
+		return
+	}
+	entries, nextCursor, err := loadDirectoryPage(ctx.Backend, path, cursor, limit, explicitlyPaged)
 	if err != nil {
 		Log.Debug("ls::backend '%s'", err.Error())
 		SendErrorResult(res, err)
 		return
 	}
+	if nextCursor != "" {
+		res.Header().Set("X-Next-Cursor", base64.RawURLEncoding.EncodeToString([]byte(nextCursor)))
+	}
+	res.Header().Set("X-Result-Limit", strconv.Itoa(limit))
 
 	files := make([]FileInfo, len(entries))
 	etagger := crc32.NewIEEE()
@@ -188,6 +207,58 @@ func FileLs(ctx *App, res http.ResponseWriter, req *http.Request) {
 		return
 	}
 	SendSuccessResultsWithMetadata(res, files, perms)
+}
+
+func directoryPageParams(req *http.Request) (limit int, cursor string, explicitlyPaged bool, err error) {
+	limit = 200
+	if rawLimit := req.URL.Query().Get("limit"); rawLimit != "" {
+		explicitlyPaged = true
+		limit, err = strconv.Atoi(rawLimit)
+		if err != nil || limit < 1 || limit > 1000 {
+			return 0, "", false, NewError("Invalid page limit", http.StatusBadRequest)
+		}
+	}
+	if rawCursor := req.URL.Query().Get("cursor"); rawCursor != "" {
+		explicitlyPaged = true
+		decoded, decodeErr := base64.RawURLEncoding.DecodeString(rawCursor)
+		if decodeErr != nil || len(decoded) > 4096 {
+			return 0, "", false, NewError("Invalid cursor", http.StatusBadRequest)
+		}
+		cursor = string(decoded)
+	}
+	return limit, cursor, explicitlyPaged, nil
+}
+
+func loadDirectoryPage(backend IBackend, path string, cursor string, limit int, explicitlyPaged bool) ([]os.FileInfo, string, error) {
+	if paged, ok := backend.(IPagedBackend); ok {
+		return paged.LsPage(path, cursor, limit)
+	}
+	entries, err := backend.Ls(path)
+	if err != nil {
+		return nil, "", err
+	}
+	legacyLimit := limit
+	if !explicitlyPaged {
+		legacyLimit = 1000
+	}
+	offset := 0
+	if cursor != "" {
+		rawOffset := strings.TrimPrefix(cursor, "offset:")
+		parsed, parseErr := strconv.Atoi(rawOffset)
+		if parseErr != nil || parsed < 0 || parsed > len(entries) {
+			return nil, "", NewError("Invalid cursor", http.StatusBadRequest)
+		}
+		offset = parsed
+	}
+	end := offset + legacyLimit
+	if end > len(entries) {
+		end = len(entries)
+	}
+	next := ""
+	if end < len(entries) {
+		next = "offset:" + strconv.Itoa(end)
+	}
+	return entries[offset:end], next, nil
 }
 
 func FileCat(ctx *App, res http.ResponseWriter, req *http.Request) {
@@ -570,19 +641,25 @@ func FileSave(ctx *App, res http.ResponseWriter, req *http.Request) {
 			chunkedUploadCache.Del(cacheKey)
 		}
 		size, err := strconv.ParseUint(req.Header.Get("Upload-Length"), 10, 0)
-		if err != nil {
-			Log.Debug("files::save::tus action=backend_save step=header_check_post err=%s", err.Error())
+		if err != nil || size > maxChunkedUploadSize {
+			Log.Debug("files::save::tus action=backend_save step=header_check_post err=%v", err)
 			SendErrorResult(res, ErrNotValid)
 			return
 		}
-		ctx.Context = context.Background()
+		if activeChunkedUploads.Load() >= maxActiveChunkedUploads {
+			SendErrorResult(res, NewError("Too many active uploads", http.StatusServiceUnavailable))
+			return
+		}
+		uploadContext, cancelUpload := context.WithCancel(context.Background())
+		ctx.Context = uploadContext
 		b, err := ctx.Backend.Init(ctx.Session, ctx)
 		if err != nil {
+			cancelUpload()
 			Log.Debug("files::save::tus action=backend_save step=backend_init err=%s", err.Error())
 			SendErrorResult(res, ErrNotValid)
 			return
 		}
-		uploader := createChunkedUploader(b.Save, path, size)
+		uploader := createChunkedUploader(b.Save, path, size, cancelUpload)
 		chunkedUploadCache.Set(cacheKey, uploader)
 		h.Set("Tus-Resumable", "1.0.0")
 		h.Set("Content-Length", "0")
@@ -628,25 +705,45 @@ func FileSave(ctx *App, res http.ResponseWriter, req *http.Request) {
 		}
 		uploader := c.(*chunkedUpload)
 		initialOffset, totalSize := uploader.Meta()
+		if initialOffset > totalSize {
+			uploader.Abort(ErrNotValid)
+			chunkedUploadCache.Del(cacheKey)
+			SendErrorResult(res, ErrNotValid)
+			return
+		}
 		if initialOffset != requestOffset {
 			Log.Debug("files::save::tus action=uploader.next path=%s err=offset_missmatch", path)
 			SendErrorResult(res, ErrNotValid)
 			return
 		}
-		reader := req.Body
+		reader, err := boundedChunkedUploadBody(res, req, totalSize-initialOffset)
+		if err != nil {
+			SendErrorResult(res, NewError("Upload chunk is too large", http.StatusRequestEntityTooLarge))
+			return
+		}
 		if hash != nil {
-			reader = io.NopCloser(io.TeeReader(req.Body, hash))
+			reader = io.NopCloser(io.TeeReader(reader, hash))
 		}
 		if err := uploader.Next(reader); err != nil {
+			uploader.Abort(err)
+			chunkedUploadCache.Del(cacheKey)
 			Log.Debug("files::save::tus action=uploader.next path=%s err=%s", path, err.Error())
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				SendErrorResult(res, NewError("Upload chunk is too large", http.StatusRequestEntityTooLarge))
+				return
+			}
 			SendErrorResult(res, NewError(err.Error(), 403))
 			return
 		}
 		if hash != nil && expectedChecksum != hex.EncodeToString(hash.Sum(nil)) {
+			uploader.Abort(ErrNotValid)
+			chunkedUploadCache.Del(cacheKey)
 			SendErrorResult(res, NewError("Checksum Mismatch", 460))
 			return
 		}
 		newOffset, _ := uploader.Meta()
+		chunkedUploadCache.Set(cacheKey, uploader)
 		if newOffset > totalSize {
 			uploader.Close()
 			chunkedUploadCache.Del(cacheKey)
@@ -669,9 +766,21 @@ func FileSave(ctx *App, res http.ResponseWriter, req *http.Request) {
 	SendErrorResult(res, ErrNotImplemented)
 }
 
-func createChunkedUploader(save func(path string, file io.Reader) error, path string, size uint64) *chunkedUpload {
+func boundedChunkedUploadBody(res http.ResponseWriter, req *http.Request, remaining uint64) (io.ReadCloser, error) {
+	limit := maxChunkedUploadPatch
+	if remaining < limit {
+		limit = remaining
+	}
+	if req.ContentLength >= 0 && uint64(req.ContentLength) > limit {
+		return nil, &http.MaxBytesError{Limit: int64(limit)}
+	}
+	return http.MaxBytesReader(res, req.Body, int64(limit)), nil
+}
+
+func createChunkedUploader(save func(path string, file io.Reader) error, path string, size uint64, cancel context.CancelFunc) *chunkedUpload {
 	r, w := io.Pipe()
 	done := make(chan error, 1)
+	activeChunkedUploads.Add(1)
 	go func() {
 		done <- save(path, r)
 	}()
@@ -681,18 +790,19 @@ func createChunkedUploader(save func(path string, file io.Reader) error, path st
 		done:   done,
 		offset: 0,
 		size:   size,
+		cancel: cancel,
 	}
 }
 
 func initChunkedUploader() {
-	chunkedUploadCache = NewAppCache(60*24, 1)
+	chunkedUploadCache = NewAppCache(15, 1)
 	chunkedUploadCache.OnEvict(func(key string, value interface{}) {
 		c := value.(*chunkedUpload)
 		if c == nil {
 			Log.Warning("ctrl::files::chunked::cleanup nil on close")
 			return
 		}
-		if err := c.Close(); err != nil {
+		if err := c.Abort(context.Canceled); err != nil && err != context.Canceled {
 			Log.Warning("ctrl::files::chunked::cleanup action=close err=%s", err.Error())
 			return
 		}
@@ -700,16 +810,21 @@ func initChunkedUploader() {
 }
 
 type chunkedUpload struct {
-	fn     func(path string, file io.Reader) error
-	stream *io.PipeWriter
-	offset uint64
-	size   uint64
-	done   chan error
-	once   sync.Once
-	mu     sync.Mutex
+	fn       func(path string, file io.Reader) error
+	stream   *io.PipeWriter
+	offset   uint64
+	size     uint64
+	done     chan error
+	cancel   context.CancelFunc
+	once     sync.Once
+	mu       sync.Mutex
+	writeMu  sync.Mutex
+	closeErr error
 }
 
 func (this *chunkedUpload) Next(body io.ReadCloser) error {
+	this.writeMu.Lock()
+	defer this.writeMu.Unlock()
 	n, err := io.Copy(this.stream, body)
 	body.Close()
 	this.mu.Lock()
@@ -719,12 +834,30 @@ func (this *chunkedUpload) Next(body io.ReadCloser) error {
 }
 
 func (this *chunkedUpload) Close() error {
-	this.stream.Close()
-	err := <-this.done
 	this.once.Do(func() {
-		close(this.done)
+		if err := this.stream.Close(); err != nil {
+			this.closeErr = err
+		} else {
+			this.closeErr = <-this.done
+		}
+		this.cancel()
+		activeChunkedUploads.Add(-1)
 	})
-	return err
+	return this.closeErr
+}
+
+func (this *chunkedUpload) Abort(cause error) error {
+	this.once.Do(func() {
+		this.cancel()
+		_ = this.stream.CloseWithError(cause)
+		select {
+		case this.closeErr = <-this.done:
+		case <-time.After(5 * time.Second):
+			this.closeErr = context.DeadlineExceeded
+		}
+		activeChunkedUploads.Add(-1)
+	})
+	return this.closeErr
 }
 
 func (this *chunkedUpload) Meta() (uint64, uint64) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -44,7 +45,7 @@ func logger(ctx *App, res http.ResponseWriter, req *http.Request) {
 			Scheme:     req.URL.Scheme,
 			Host:       req.Host,
 			Method:     req.Method,
-			RequestURI: req.RequestURI,
+			RequestURI: redactedRequestURI(req),
 			Proto:      req.Proto,
 			Status:     obj.status,
 			UserAgent:  req.Header.Get("User-Agent"),
@@ -90,6 +91,21 @@ func logger(ctx *App, res http.ResponseWriter, req *http.Request) {
 			Log.Stdout("HTTP %3d %3s %6.1fms %s %s", point.Status, point.Method, point.Duration, limit(point.RequestURI, 200), tid)
 		}
 	}
+}
+
+func redactedRequestURI(req *http.Request) string {
+	u := *req.URL
+	q := u.Query()
+	for _, key := range []string{"authorization", "access_token", "token", "code", "password", "secret"} {
+		if q.Has(key) {
+			q.Set(key, "[REDACTED]")
+		}
+	}
+	u.RawQuery = q.Encode()
+	if u.Path == "" {
+		u.Path = "/"
+	}
+	return (&url.URL{Path: u.Path, RawPath: u.RawPath, RawQuery: u.RawQuery}).RequestURI()
 }
 
 func limit(input string, maxLength int) string {

@@ -4,6 +4,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 	. "github.com/mickael-kerjean/filestash/server/common"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 var SftpCache AppCache
@@ -151,12 +153,29 @@ func (s Sftp) Init(params map[string]string, app *App) (IBackend, error) {
 		}
 	}
 
+	var knownHostsCallback ssh.HostKeyCallback
+	if params["hostkey"] == "" {
+		knownHostsPath := strings.TrimSpace(os.Getenv("SSH_KNOWN_HOSTS"))
+		if knownHostsPath == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return nil, ErrNotValid
+			}
+			knownHostsPath = filepath.Join(home, ".ssh", "known_hosts")
+		}
+		var err error
+		knownHostsCallback, err = knownhosts.New(knownHostsPath)
+		if err != nil {
+			Log.Warning("plg_backend_sftp::known_hosts cannot load %s: %s", knownHostsPath, err.Error())
+			return nil, ErrNotValid
+		}
+	}
 	config := &ssh.ClientConfig{
 		User: p.username,
 		Auth: auth,
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 			if params["hostkey"] == "" {
-				return nil
+				return knownHostsCallback(hostname, remote, key)
 			}
 			fsha := ssh.FingerprintSHA256(key)
 			if fsha == params["hostkey"] {

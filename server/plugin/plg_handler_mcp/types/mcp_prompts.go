@@ -2,7 +2,7 @@ package types
 
 type PromptsListResponse struct {
 	Prompts    []Prompt `json:"prompts"`
-	NextCursor string   `json:"nextCursor",omitempty`
+	NextCursor string   `json:"nextCursor,omitempty"`
 }
 
 type Prompt struct {

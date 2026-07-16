@@ -20,16 +20,34 @@ func ExtractToken(r *http.Request) string {
 	return strings.TrimPrefix(authHeader, "Bearer ")
 }
 
-func (this *Server) GetSession(uuid string) UserSession {
-	ch, _ := this.sessions.LoadOrStore(uuid, UserSession{
+func (this *Server) CreateSession(uuid string, token string) (*UserSession, bool) {
+	count := 0
+	this.sessions.Range(func(_, _ any) bool {
+		count++
+		return count < 128
+	})
+	if count >= 128 {
+		return nil, false
+	}
+	session := &UserSession{
 		Id:      uuid,
-		Chan:    make(chan JSONRPCRequest),
+		Token:   token,
+		Chan:    make(chan JSONRPCRequest, 16),
 		CurrDir: "/",
 		HomeDir: "/",
 		Ping: Ping{
 			ID:           0,
 			LastResponse: time.Now(),
 		},
-	})
-	return ch.(UserSession)
+	}
+	actual, loaded := this.sessions.LoadOrStore(uuid, session)
+	return actual.(*UserSession), !loaded
+}
+
+func (this *Server) GetSession(uuid string) (*UserSession, bool) {
+	value, ok := this.sessions.Load(uuid)
+	if !ok {
+		return nil, false
+	}
+	return value.(*UserSession), true
 }

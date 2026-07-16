@@ -1,0 +1,152 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOFLAGS: -mod=readonly
+  GOTOOLCHAIN: local
+
+jobs:
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - name: Assert submitted revision
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --prefix web --no-audit --no-fund
+      - run: npm run lint --prefix web
+      - run: npm run typecheck --if-present --prefix web
+      - run: npm run test:coverage --prefix web
+      - run: npm audit --prefix web --omit=dev --audit-level=high
+      - run: npm run build --prefix web
+      - run: node web/scripts/build-embed.mjs --apply --skip-build
+      - run: ./scripts/check-web-assets.sh
+      - name: Embedded assets match frontend source
+        run: git diff --exit-code -- public/
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e --prefix web
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: frontend-test-artifacts-${{ github.sha }}
+          path: |
+            web/coverage/
+            web/playwright-report/
+            web/test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+  backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - name: Assert submitted revision
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: 1.26.5
+          cache-dependency-path: go.sum
+      - name: Native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libjpeg-dev libtiff-dev libpng-dev libwebp-dev libraw-dev libheif-dev \
+            libgif-dev libvips-dev libavcodec-dev libavdevice-dev libavfilter-dev \
+            libavformat-dev libswresample-dev libswscale-dev libavutil-dev
+      - run: go mod download && go mod verify
+      - run: go generate -x ./server/...
+      - run: go vet ./server/... ./cmd/...
+      - run: go test -count=1 -covermode=atomic -coverprofile=coverage-go.out ./server/... ./cmd/...
+      - run: ./scripts/check-go-coverage.sh coverage-go.out
+      - name: Critical-package coverage ratchet
+        run: |
+          go test -count=1 -covermode=atomic -coverprofile=coverage-go-critical.out \
+            ./server/common ./server/middleware ./server/ctrl ./server/model \
+            ./server/pkg/workflow/trigger ./server/plugin/plg_handler_mcp \
+            ./server/plugin/plg_handler_console ./server/plugin/plg_backend_dav
+          GO_COVERAGE_MIN=16.6 ./scripts/check-go-coverage.sh coverage-go-critical.out
+      - run: CGO_ENABLED=1 go test -race -count=1 ./server/... ./cmd/...
+      - run: go test -run '^$' -bench . -benchmem ./server/... ./cmd/... | tee benchmarks.txt
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./server/... ./cmd/...
+      - name: Module files remain readonly
+        run: git diff --exit-code -- go.mod go.sum
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: benchmarks-${{ github.sha }}
+          path: |
+            benchmarks.txt
+            coverage-go.out
+            coverage-go-critical.out
+          if-no-files-found: error
+          retention-days: 30
+
+  sbom:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: 1.26.5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: make sbom
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cyclonedx-sbom-${{ github.sha }}
+          path: dist/*.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+
+  image:
+    needs: [frontend, backend]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: false
+          load: true
+          build-args: BUILD_REF=${{ github.sha }}
+          tags: filestash:${{ github.sha }}
+          provenance: mode=max
+          sbom: true
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: filestash:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH

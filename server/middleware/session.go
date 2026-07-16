@@ -2,9 +2,11 @@ package middleware
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -47,6 +49,15 @@ func AdminOnly(fn HandlerFunc) HandlerFunc {
 			json.Unmarshal([]byte(str), &token)
 
 			if token.IsValid() == false || token.IsAdmin() == false {
+				SendErrorResult(res, ErrPermissionDenied)
+				return
+			}
+		} else {
+			expected := os.Getenv("FILESTASH_SETUP_TOKEN")
+			provided := req.Header.Get("X-Filestash-Setup-Token")
+			isSetupRoute := TrimBase(req.URL.Path) == "/admin/api/config" && (req.Method == http.MethodGet || req.Method == http.MethodPost)
+			validToken := len(expected) >= 32 && len(expected) == len(provided) && subtle.ConstantTimeCompare([]byte(expected), []byte(provided)) == 1
+			if !isSetupRoute || !validToken {
 				SendErrorResult(res, ErrPermissionDenied)
 				return
 			}

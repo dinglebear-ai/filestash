@@ -39,12 +39,7 @@
             <li><a href="https://github.com/mickael-kerjean/filestash/tree/master/server/plugin/plg_widget_pgp">e2e</a>: pgp, gpg</li>
         </ul>
     </li>
-    <li>Themes: <br>
-        <img src="https://www.filestash.app/img/screenshots/theme_github.png" height="150" />
-        <img src="https://www.filestash.app/img/screenshots/theme_apple.png" height="150" />
-        <img src="https://www.filestash.app/img/screenshots/theme_dropbox.png" height="150" />
-        <img src="https://www.filestash.app/img/screenshots/theme_ibm.png" height="150" />
-    </li>
+    <li>Aurora React client: a statically exported, dark-first interface embedded in the Go binary. Legacy DOM theme patches require migration to a supported React contract.</li>
     <li>AI features for <a href="https://www.filestash.app/docs/guide/search.html">search</a>, <a href="https://www.filestash.app/features/smart-folder.html">smart folders</a> and OCRs.</li>
     <li>... and much <sub>much <sub>more (versioning, audit, public site, antivirus, quota, chat, chromecast support, on demand video transcoding, mounting shared links as network drive, ....)</sub></sub><br> As a rule of thumb, if your problem involves files, we either already <a href="https://www.filestash.app/docs/plugin/">have a plugin</a> for it or can make a plugin for it
 </ul>
@@ -53,6 +48,13 @@
 # Getting Started
 
 To install Filestash, head to the [Getting started](https://www.filestash.app/docs/?origin=github) guide. If you want to leverage plugins, head over to the [inventory](https://www.filestash.app/docs/plugin/?origin=github), or learn about [developing your own plugins](https://www.filestash.app/docs/guide/plugin-development.html?origin=github).
+
+Self-hosted installations must be placed behind HTTPS and bootstrapped with a
+one-time high-entropy setup token; the repository's Compose example is not an
+internet-facing TLS endpoint. Read [the secure Compose guide](docker/README.md)
+before first start. Upgrades to the React/Aurora client, subpath deployments, and
+frontend plugins have additional checks in the
+[frontend migration guide](docs/frontend-migration.md).
 
 If you want guidance and expert help on your file management problem, [book a call](https://www.filestash.app/tunnel/demo/?origin=github) and let's figure out if Filestash is the right platform for you.
 
@@ -78,7 +80,15 @@ type IBackend interface {
 }
 ```
 
-There are interfaces you can implement for every key component of Filestash: from storage, to authentication, <a href="https://www.filestash.app/docs/guide/authorization.html">authorisation</a>, custom apps, <a href="https://www.filestash.app/docs/guide/search.html">search</a>, thumbnailing, frontend patches, middleware, endpoint creation and a few others documented in the [plugin development guide](https://www.filestash.app/docs/guide/plugin-development.html).
+There are interfaces you can implement for storage, authentication,
+<a href="https://www.filestash.app/docs/guide/authorization.html">authorisation</a>,
+custom viewers, <a href="https://www.filestash.app/docs/guide/search.html">search</a>,
+thumbnailing, middleware, endpoints, and other services documented in the
+[plugin development guide](https://www.filestash.app/docs/guide/plugin-development.html).
+The React frontend uses a typed, versioned viewer host and a sandboxed iframe host;
+legacy DOM patches, theme overrides, and `.diff` frontend plugins are not loaded as
+arbitrary shell code. See the [migration guide](docs/frontend-migration.md) before
+assuming a legacy frontend plugin is compatible.
 
 To see what's currently installed in your instance, head over to [/about](https://demo.filestash.app/about). The inventory of plugins is [documented here](https://www.filestash.app/docs/plugin/)
 
