@@ -54,7 +54,8 @@ WORKDIR /app
 RUN apt-get update >/dev/null && \
     apt-get install -y --no-install-recommends ca-certificates curl ffmpeg libbrotli1 libvips >/dev/null && \
     useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin filestash && \
-    install -d -o filestash -g filestash -m 0700 /app/data/state/config /app/data/state/log /app/data/cache && \
+    install -d -o filestash -g filestash -m 0700 \
+      /app/data/state /app/data/state/config /app/data/state/log /app/data/cache && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=builder_backend --chown=filestash:filestash /out/filestash /app/filestash
 COPY --chown=filestash:filestash config/config.json /app/data/state/config/config.json

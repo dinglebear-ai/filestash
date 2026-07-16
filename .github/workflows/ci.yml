@@ -145,6 +145,27 @@ jobs:
           # attestations. The dedicated sbom job publishes validated CycloneDX.
           provenance: false
           sbom: false
+      - name: Smoke-test image startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          name=filestash-smoke
+          trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
+          docker run -d --name "$name" "filestash:${{ github.sha }}" >/dev/null
+          for _ in {1..45}; do
+            state=$(docker inspect --format '{{.State.Status}}' "$name")
+            health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$name")
+            if [[ "$health" == "healthy" ]]; then
+              exit 0
+            fi
+            if [[ "$state" == "exited" || "$health" == "unhealthy" ]]; then
+              docker logs "$name"
+              exit 1
+            fi
+            sleep 2
+          done
+          docker logs "$name"
+          exit 1
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: filestash:${{ github.sha }}
