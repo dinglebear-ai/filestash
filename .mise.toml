@@ -1,0 +1,12 @@
+[tools]
+# Exact Go follows go.mod's go directive. Do not change mise alone.
+go = "1.26.5"
+node = "24.18.0"
+
+[tasks.check]
+description = "Run the deterministic local verification suite"
+run = "make verify"
+
+[tasks.ci]
+description = "Run all release gates, including race, audits, and SBOMs"
+run = "make ci"

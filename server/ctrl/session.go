@@ -7,8 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	. "github.com/mickael-kerjean/filestash/server/common"
@@ -23,7 +23,16 @@ type Session struct {
 	IsAuth        bool    `json:"is_authenticated"`
 	Backend       string  `json:"backendID"`
 	Authorization string  `json:"authorization,omitempty"`
+	Next          string  `json:"next,omitempty"`
 }
+
+type ssoStateRecord struct {
+	label     string
+	state     string
+	expiresAt time.Time
+}
+
+var ssoStates sync.Map
 
 func SessionGet(ctx *App, res http.ResponseWriter, req *http.Request) {
 	r := Session{
@@ -43,6 +52,7 @@ func SessionGet(ctx *App, res http.ResponseWriter, req *http.Request) {
 	r.IsAuth = true
 	r.Home = NewString(home)
 	r.Backend = backendID(ctx.Session)
+	r.Next = mcpOAuthContinuation(req)
 	if ctx.Share.Id == "" && Config.Get("features.protection.enable_chromecast").Bool() {
 		r.Authorization = ctx.Authorization
 	}
@@ -131,6 +141,7 @@ func SessionAuthenticate(ctx *App, res http.ResponseWriter, req *http.Request) {
 		Home:          NewString(home),
 		Backend:       backendID(session),
 		Authorization: obfuscate,
+		Next:          mcpOAuthContinuation(req),
 	})
 }
 
@@ -164,18 +175,18 @@ func SessionLogout(ctx *App, res http.ResponseWriter, req *http.Request) {
 		}, req))
 		index++
 	}
-	http.SetCookie(res, &http.Cookie{
+	http.SetCookie(res, applyCookieRules(&http.Cookie{
 		Name:   COOKIE_NAME_ADMIN,
 		Value:  "",
 		MaxAge: -1,
 		Path:   COOKIE_PATH_ADMIN,
-	})
-	http.SetCookie(res, &http.Cookie{
+	}, req))
+	http.SetCookie(res, applyCookieRules(&http.Cookie{
 		Name:   COOKIE_NAME_PROOF,
 		Value:  "",
 		MaxAge: -1,
 		Path:   COOKIE_PATH,
-	})
+	}, req))
 	Log.Stdout("AUDIT action[logout] backend[%s] user[%s] target[%s]", ctx.Session["type"], username(ctx.Session), ip(req))
 	SendSuccessResult(res, nil)
 }
@@ -204,8 +215,8 @@ func SessionOAuthBackend(ctx *App, res http.ResponseWriter, req *http.Request) {
 		return
 	}
 	stateValue := vars["service"]
-	if req.URL.Query().Get("next") != "" {
-		stateValue += "::" + req.URL.Query().Get("next")
+	if next := safeLocalRedirect(req.URL.Query().Get("next")); next != WithBase("/") {
+		stateValue += "::" + next
 	}
 	q := redirectUrl.Query()
 	q.Set("state", stateValue)
@@ -294,12 +305,17 @@ func SessionAuthMiddleware(ctx *App, res http.ResponseWriter, req *http.Request)
 	// Step1: Entrypoint of the authentication process is handled by the plugin
 	if req.Method == "GET" && _get.Get("action") == "redirect" {
 		if label := _get.Get("label"); label != "" {
+			nonce := RandomString(48)
+			ssoStates.Store(nonce, ssoStateRecord{label: label, state: _get.Get("state"), expiresAt: time.Now().Add(10 * time.Minute)})
+			query := req.URL.Query()
+			query.Set("state", nonce)
+			req.URL.RawQuery = query.Encode()
 			http.SetCookie(
 				res,
 				applyCookieSameSiteRule(
 					applyCookieRules(&http.Cookie{
 						Name:   SSOCookieName,
-						Value:  label + "::" + _get.Get("state"),
+						Value:  nonce,
 						MaxAge: 60 * 10,
 						Path:   COOKIE_PATH,
 					}, req),
@@ -319,6 +335,23 @@ func SessionAuthMiddleware(ctx *App, res http.ResponseWriter, req *http.Request)
 	// Step2: End of the authentication process. Could come from:
 	// - target of a html form. eg: ldap, mysql, ...
 	// - identity provider redirection uri. eg: oauth2, openid, ...
+	refCookie, cookieErr := req.Cookie(SSOCookieName)
+	if cookieErr != nil {
+		SendErrorResult(res, ErrPermissionDenied)
+		return
+	}
+	recordValue, found := ssoStates.Load(refCookie.Value)
+	if !found {
+		SendErrorResult(res, ErrPermissionDenied)
+		return
+	}
+	record := recordValue.(ssoStateRecord)
+	if time.Now().After(record.expiresAt) || (formData["state"] != "" && formData["state"] != refCookie.Value) {
+		ssoStates.Delete(refCookie.Value)
+		SendErrorResult(res, ErrPermissionDenied)
+		return
+	}
+
 	pluginCallback, err := plugin.Callback(formData, idpParams, res)
 	if err == ErrAuthenticationFailed {
 		Log.Warning("failed authentication - %s", err.Error())
@@ -341,25 +374,17 @@ func SessionAuthMiddleware(ctx *App, res http.ResponseWriter, req *http.Request)
 	}
 	templateBind := TmplParams(pluginCallback)
 
-	var (
-		label = ""
-		state = ""
-	)
-	if refCookie, err := req.Cookie(SSOCookieName); err == nil { // TODO: deprecate SSOCookieName
-		s := strings.SplitN(refCookie.Value, "::", 2)
-		switch len(s) {
-		case 1:
-			label = s[0]
-		case 2:
-			label = s[0]
-			state = s[1]
-		}
-	} else if l := req.URL.Query().Get("label"); l != "" {
-		label = l
-		state = req.URL.Query().Get("state")
-	} else {
-		Log.Warning("session::authMiddleware action=callback_error err=missing_label url=%s", req.URL.String())
+	recordValue, found = ssoStates.LoadAndDelete(refCookie.Value)
+	if !found {
+		SendErrorResult(res, ErrPermissionDenied)
+		return
 	}
+	record = recordValue.(ssoStateRecord)
+	if time.Now().After(record.expiresAt) {
+		SendErrorResult(res, ErrPermissionDenied)
+		return
+	}
+	label, state := record.label, record.state
 	if decodedState, err := base64.StdEncoding.DecodeString(state); err == nil {
 		stateStruct := map[string]string{}
 		json.Unmarshal(decodedState, &stateStruct)
@@ -372,7 +397,7 @@ func SessionAuthMiddleware(ctx *App, res http.ResponseWriter, req *http.Request)
 			if k == "signature" {
 				signature = v
 			}
-			if slices.Contains(fields, k) {
+			if containsString(fields, k) {
 				attributes += fmt.Sprintf("%s[%s] ", k, v)
 			}
 		}
@@ -398,12 +423,17 @@ func SessionAuthMiddleware(ctx *App, res http.ResponseWriter, req *http.Request)
 			templateBind[key] = value
 		}
 	}
-	redirectURI := templateBind["next"]
-	if redirectURI == "" {
-		redirectURI = WithBase("/")
+	redirectURI := safeLocalRedirect(templateBind["next"])
+	continuation := mcpOAuthContinuation(req)
+	if continuation != "" {
+		redirectURI = continuation
 	}
-	if templateBind["nav"] != "" {
-		redirectURI += "?nav=" + templateBind["nav"]
+	if continuation == "" && templateBind["nav"] != "" {
+		u, _ := url.Parse(redirectURI)
+		q := u.Query()
+		q.Set("nav", templateBind["nav"])
+		u.RawQuery = q.Encode()
+		redirectURI = u.String()
 	}
 
 	// Step3: create a backend connection object
@@ -479,16 +509,49 @@ func SessionAuthMiddleware(ctx *App, res http.ResponseWriter, req *http.Request)
 		MaxAge: 60 * Config.Get("general.cookie_timeout").Int(),
 		Path:   COOKIE_PATH,
 	}, req))
-	if Config.Get("features.protection.iframe").String() != "" {
-		redirectURI += "#bearer=" + obfuscate
-	}
 	Log.Info("[auth] status=success user=%s backend=%s::%s ip=%s", username(session), session["type"], backendID(session), ip(req))
 	http.Redirect(res, req, redirectURI, http.StatusSeeOther)
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func safeLocalRedirect(raw string) string {
+	if raw == "" {
+		return WithBase("/")
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.IsAbs() || u.Host != "" || !strings.HasPrefix(u.Path, "/") || strings.HasPrefix(u.Path, "//") || strings.ContainsAny(raw, "\r\n") {
+		return WithBase("/")
+	}
+	if BASE != "" && !strings.HasPrefix(u.Path, BASE+"/") && u.Path != BASE {
+		u.Path = WithBase(u.Path)
+	}
+	return u.String()
+}
+
+func mcpOAuthContinuation(req *http.Request) string {
+	cookie, err := req.Cookie(MCPOAuthContinuationCookie)
+	if err != nil {
+		return ""
+	}
+	_, next, err := ParseMCPOAuthContinuation(cookie.Value)
+	if err != nil {
+		return ""
+	}
+	return next
 }
 
 func applyCookieRules(cookie *http.Cookie, req *http.Request) *http.Cookie {
 	cookie.HttpOnly = true
 	cookie.SameSite = http.SameSiteStrictMode
+	cookie.Secure = req.TLS != nil || strings.EqualFold(req.Header.Get("X-Forwarded-Proto"), "https") || Config.Get("general.force_ssl").Bool()
 	if Config.Get("features.protection.iframe").String() != "" {
 		if f := req.Header.Get("Referer"); strings.HasPrefix(f, "https://") {
 			cookie.Secure = true

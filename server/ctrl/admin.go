@@ -2,13 +2,14 @@ package ctrl
 
 import (
 	"encoding/json"
-	. "github.com/mickael-kerjean/filestash/server/common"
-	"golang.org/x/crypto/bcrypt"
 	"io"
 	"net/http"
 	"os"
 	"strconv"
 	"time"
+
+	. "github.com/mickael-kerjean/filestash/server/common"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var logpath = GetAbsolutePath(LOG_PATH, "access.log")
@@ -55,8 +56,17 @@ func AdminSessionAuthenticate(ctx *App, res http.ResponseWriter, req *http.Reque
 		return
 	}
 	var params map[string]string
-	b, _ := io.ReadAll(req.Body)
-	json.Unmarshal(b, &params)
+	req.Body = http.MaxBytesReader(res, req.Body, 64<<10)
+	decoder := json.NewDecoder(req.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&params); err != nil {
+		SendErrorResult(res, ErrNotValid)
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		SendErrorResult(res, ErrNotValid)
+		return
+	}
 	if err := bcrypt.CompareHashAndPassword([]byte(admin), []byte(params["password"])); err != nil {
 		SendErrorResult(res, ErrInvalidPassword)
 		return
@@ -69,13 +79,13 @@ func AdminSessionAuthenticate(ctx *App, res http.ResponseWriter, req *http.Reque
 		SendErrorResult(res, err)
 		return
 	}
-	http.SetCookie(res, &http.Cookie{
+	http.SetCookie(res, applyCookieRules(&http.Cookie{
 		Name:     COOKIE_NAME_ADMIN,
 		Value:    obfuscate,
 		Path:     COOKIE_PATH_ADMIN,
 		MaxAge:   60 * 60, // valid for 1 hour
 		SameSite: http.SameSiteStrictMode,
-	})
+	}, req))
 	if req.Header.Get("Accept") == "application/json" {
 		SendSuccessResult(res, map[string]string{"access_token": obfuscate})
 		return

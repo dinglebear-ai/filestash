@@ -2,7 +2,6 @@ package plg_starter_tor
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -35,12 +34,12 @@ func init() {
 		}
 		defer onion.Close()
 
-		srv := &http.Server{
-			Handler: r,
-		}
+		srv := NewHTTPServer("", r)
 		go func() {
 			<-ctx.Done()
-			srv.Shutdown(context.Background())
+			if err := ShutdownHTTPServer(srv); err != nil {
+				Log.Warning("[tor] graceful shutdown failed: %v", err)
+			}
 		}()
 		Log.Info("[tor] started http://%s.onion\n", onion.ID)
 		Config.Get("features.server.tor_url").Set("http://" + onion.ID + ".onion")

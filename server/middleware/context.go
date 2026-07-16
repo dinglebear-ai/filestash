@@ -4,32 +4,48 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 
 	. "github.com/mickael-kerjean/filestash/server/common"
 )
 
-func BodyParser(fn HandlerFunc) HandlerFunc {
-	extractBody := func(req *http.Request) (map[string]interface{}, error) {
-		body := map[string]interface{}{}
-		byt, err := io.ReadAll(req.Body)
-		if err != nil {
-			return body, err
-		}
-		if err := json.Unmarshal(byt, &body); err != nil {
-			if len(byt) == 0 {
-				err = nil
-			}
-			return body, err
-		}
-		return body, nil
-	}
+const DefaultJSONBodyLimit int64 = 1 << 20
 
-	return HandlerFunc(func(ctx *App, res http.ResponseWriter, req *http.Request) {
-		var err error
-		if ctx.Body, err = extractBody(req); err != nil {
-			SendErrorResult(res, ErrNotValid)
-			return
+func BodyParserWithLimit(maxBytes int64) Middleware {
+	return func(fn HandlerFunc) HandlerFunc {
+		extractBody := func(req *http.Request) (map[string]interface{}, error) {
+			body := map[string]interface{}{}
+			decoder := json.NewDecoder(req.Body)
+			decoder.UseNumber()
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&body); err != nil {
+				if err.Error() == "EOF" {
+					return body, nil
+				}
+				return body, err
+			}
+			if err := decoder.Decode(&struct{}{}); err != io.EOF {
+				return body, ErrNotValid
+			}
+			return body, nil
 		}
-		fn(ctx, res, req)
-	})
+
+		return HandlerFunc(func(ctx *App, res http.ResponseWriter, req *http.Request) {
+			req.Body = http.MaxBytesReader(res, req.Body, maxBytes)
+			var err error
+			if ctx.Body, err = extractBody(req); err != nil {
+				if strings.Contains(err.Error(), "request body too large") {
+					SendErrorResult(res, NewError("Request body too large", http.StatusRequestEntityTooLarge))
+					return
+				}
+				SendErrorResult(res, ErrNotValid)
+				return
+			}
+			fn(ctx, res, req)
+		})
+	}
+}
+
+func BodyParser(fn HandlerFunc) HandlerFunc {
+	return BodyParserWithLimit(DefaultJSONBodyLimit)(fn)
 }

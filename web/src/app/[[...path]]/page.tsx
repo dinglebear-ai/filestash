@@ -4,7 +4,14 @@ import { AppRouter } from "@/app/app-router";
 // prerenders only the root; the Go server serves this shell for every front/back-
 // office route and AppRouter resolves the screen client-side from the URL.
 export function generateStaticParams() {
-  return [{ path: [] }];
+  return [
+    { path: [] },
+    { path: ["admin"] },
+    { path: ["files"] },
+    { path: ["logout"] },
+    { path: ["s", "preview"] },
+    { path: ["view"] },
+  ];
 }
 
 export const dynamicParams = false;

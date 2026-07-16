@@ -2,6 +2,7 @@ package plg_widget_chat
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,12 +16,31 @@ func listMessages(ctx *App, w http.ResponseWriter, r *http.Request) {
 		SendErrorResult(w, err)
 		return
 	}
+	limit := 100
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		value, parseErr := strconv.Atoi(raw)
+		if parseErr != nil || value < 1 || value > 200 {
+			SendErrorResult(w, NewError("Invalid page limit", http.StatusBadRequest))
+			return
+		}
+		limit = value
+	}
+	before := time.Now().Add(time.Minute).Unix()
+	if raw := r.URL.Query().Get("before"); raw != "" {
+		value, parseErr := strconv.ParseInt(raw, 10, 64)
+		if parseErr != nil || value < 1 {
+			SendErrorResult(w, NewError("Invalid cursor", http.StatusBadRequest))
+			return
+		}
+		before = value
+	}
 	rows, err := db.QueryContext(r.Context(), `
-		SELECT path, author, message, creation_date
-			FROM messages
-			WHERE path GLOB ?
-			ORDER BY creation_date ASC
-	`, globAll(path))
+			SELECT path, author, message, creation_date
+				FROM messages
+				WHERE path GLOB ? AND creation_date < ?
+				ORDER BY creation_date DESC
+				LIMIT ?
+		`, globAll(path), before, limit)
 	if err != nil {
 		SendErrorResult(w, err)
 		return
@@ -44,6 +64,12 @@ func listMessages(ctx *App, w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, m)
 	}
+	for left, right := 0, len(out)-1; left < right; left, right = left+1, right-1 {
+		out[left], out[right] = out[right], out[left]
+	}
+	if len(out) == limit {
+		w.Header().Set("X-Next-Cursor", strconv.FormatInt(out[0].CreatedAt, 10))
+	}
 	SendSuccessResults(w, out)
 }
 
@@ -54,7 +80,7 @@ func createMessage(ctx *App, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	msg, ok := ctx.Body["message"].(string)
-	if !ok {
+	if !ok || len(msg) == 0 || len(msg) > 16<<10 {
 		SendErrorResult(w, NewError("Invalid parameters", 400))
 		return
 	}
@@ -67,6 +93,7 @@ func createMessage(ctx *App, w http.ResponseWriter, r *http.Request) {
 		SendErrorResult(w, err)
 		return
 	}
+	_, _ = db.ExecContext(ctx.Context, `DELETE FROM messages WHERE creation_date < ?`, time.Now().Add(-90*24*time.Hour).Unix())
 
 	extractMentions := func(message string) []string {
 		matches := mention_re.FindAllStringSubmatch(message, -1)

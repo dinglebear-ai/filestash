@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -25,14 +26,36 @@ func (this *Server) messageHandler(_ *App, w http.ResponseWriter, r *http.Reques
 		w.Write([]byte("Invalid Request"))
 		return
 	}
+	userSession, ok := this.GetSession(sessionID)
+	if !ok {
+		http.Error(w, "Unknown session", http.StatusNotFound)
+		return
+	}
+	if token := ExtractToken(r); token == "" || token != userSession.Token {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 256<<10)
 	request := JSONRPCRequest{}
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte("ERR: " + err.Error()))
 		return
 	}
-	this.GetSession(sessionID).Chan <- request
-	w.WriteHeader(http.StatusNoContent)
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		http.Error(w, "Invalid trailing data", http.StatusBadRequest)
+		return
+	}
+	select {
+	case userSession.Chan <- request:
+		w.WriteHeader(http.StatusNoContent)
+	case <-r.Context().Done():
+		http.Error(w, "Request cancelled", http.StatusRequestTimeout)
+	default:
+		http.Error(w, "Session queue full", http.StatusTooManyRequests)
+	}
 }
 
 func (this *Server) sseHandler(_ *App, w http.ResponseWriter, r *http.Request) {
@@ -52,8 +75,15 @@ func (this *Server) sseHandler(_ *App, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userSession := this.GetSession(uuid.New().String())
-	userSession.Token = token
+	if _, err := getBackend(token); err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	userSession, created := this.CreateSession(uuid.New().String(), token)
+	if !created {
+		http.Error(w, "Too many MCP sessions", http.StatusServiceUnavailable)
+		return
+	}
 	if b, err := getBackend(userSession.Token); err == nil {
 		userSession.HomeDir, _ = model.GetHome(b, "/")
 		userSession.CurrDir = ToString(userSession.HomeDir, "/")
@@ -105,40 +135,14 @@ func (this *Server) sseHandler(_ *App, w http.ResponseWriter, r *http.Request) {
 					ResourceTemplates: AllResourceTemplates(),
 				})
 			case "resources/read":
-				if uri, ok := request.Params["uri"].(string); ok {
-					if resource, err := FindResource(uri); err != nil {
-						SendError(w, request.ID, JSONRPCError{
-							Code:    http.StatusBadRequest,
-							Message: fmt.Sprintf("Unknown tool: %s", request.Params["name"]),
-						})
-					} else {
-						SendMessage(w, request.ID, &ResourceReadResponse{
-							Contents: []ResourceContent{
-								{
-									URI:      uri,
-									MimeType: resource.MimeType,
-									Text:     resource.Content,
-									Meta:     resource.Meta,
-								},
-							},
-						})
-					}
-				} else {
-					SendError(w, request.ID, JSONRPCError{
-						Code:    http.StatusBadRequest,
-						Message: fmt.Sprintf("Unexpected parameters: %v", request.Params),
-					})
-				}
-				SendMessage(w, request.ID, &ResourceReadResponse{
-					Contents: ExecResourceRead(request.Params),
-				})
+				respondResourceRead(w, request)
 			case "prompts/list":
 				SendMessage(w, request.ID, &PromptsListResponse{
 					Prompts: AllPrompts(),
 				})
 			case "prompts/get":
 				if m, ok := request.Params["name"].(string); ok {
-					res, err := ExecPromptGet(m, request.Params, &userSession)
+					res, err := ExecPromptGet(m, request.Params, userSession)
 					if err == nil {
 						SendMessage(w, request.ID, PromptGetResponse{
 							Messages:    res,
@@ -164,9 +168,9 @@ func (this *Server) sseHandler(_ *App, w http.ResponseWriter, r *http.Request) {
 							Code:    http.StatusBadRequest,
 							Message: fmt.Sprintf("Unknown tool: %s", request.Params["name"]),
 						})
-					} else if res, err := tool.Run(request.Params, &userSession); err != nil {
+					} else if res, err := tool.Run(request.Params, userSession); err != nil {
 						SendMessage(w, request.ID, ToolResponse{
-							Content: []TextContent{{"text", err.Error()}},
+							Content: []TextContent{{Type: "text", Text: err.Error()}},
 							IsError: true,
 						})
 					} else {
@@ -182,7 +186,7 @@ func (this *Server) sseHandler(_ *App, w http.ResponseWriter, r *http.Request) {
 				SendMessage(w, request.ID, map[string]string{})
 			case "completion/complete":
 				SendMessage(w, request.ID, CompletionResponse{
-					Completion: ExecCompletion(request.Params, &userSession),
+					Completion: ExecCompletion(request.Params, userSession),
 				})
 			case "ping":
 				SendMessage(w, request.ID, map[string]string{})
@@ -199,7 +203,7 @@ func (this *Server) sseHandler(_ *App, w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		case <-r.Context().Done():
-			this.RemoveSession(&userSession)
+			this.RemoveSession(userSession)
 			return
 		case <-time.After(15 * time.Second):
 			SendPing(w, userSession.Ping.ID)
@@ -209,7 +213,7 @@ func (this *Server) sseHandler(_ *App, w http.ResponseWriter, r *http.Request) {
 					"reason":    "Request timed out",
 				})
 				time.Sleep(2 * time.Second)
-				this.RemoveSession(&userSession)
+				this.RemoveSession(userSession)
 				if hi, ok := w.(http.Hijacker); ok {
 					if conn, rw, err := hi.Hijack(); err == nil {
 						rw.WriteString("0\r\n\r\n")
@@ -222,6 +226,30 @@ func (this *Server) sseHandler(_ *App, w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func respondResourceRead(w http.ResponseWriter, request JSONRPCRequest) {
+	uri, ok := request.Params["uri"].(string)
+	if !ok || uri == "" {
+		SendError(w, request.ID, JSONRPCError{
+			Code:    http.StatusBadRequest,
+			Message: fmt.Sprintf("Unexpected parameters: %v", request.Params),
+		})
+		return
+	}
+	resource, err := FindResource(uri)
+	if err != nil {
+		SendError(w, request.ID, err)
+		return
+	}
+	SendMessage(w, request.ID, &ResourceReadResponse{
+		Contents: []ResourceContent{{
+			URI:      uri,
+			MimeType: resource.MimeType,
+			Text:     resource.Content,
+			Meta:     resource.Meta,
+		}},
+	})
 }
 
 func getBackend(token string) (IBackend, error) {

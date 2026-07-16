@@ -13,12 +13,20 @@ func PrivateConfigHandler(ctx *App, res http.ResponseWriter, req *http.Request) 
 }
 
 func PrivateConfigUpdateHandler(ctx *App, res http.ResponseWriter, req *http.Request) {
-	b, _ := io.ReadAll(req.Body)
-	if err := SaveConfig(b); err != nil {
+	req.Body = http.MaxBytesReader(res, req.Body, 2<<20)
+	b, err := io.ReadAll(req.Body)
+	if err != nil {
+		if len(b) >= 2<<20 {
+			SendErrorResult(res, NewError("Request body too large", http.StatusRequestEntityTooLarge))
+			return
+		}
+		SendErrorResult(res, ErrNotValid)
+		return
+	}
+	if err := Config.ApplyPatch(b); err != nil {
 		SendErrorResult(res, err)
 		return
 	}
-	Config.Load()
 	SendSuccessResult(res, nil)
 }
 

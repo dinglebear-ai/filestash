@@ -26,11 +26,13 @@ function fitCamera(camera: THREE.PerspectiveCamera, controls: OrbitControls, obj
 
 export default function ThreeViewer({ src, ext }: { src: string; ext: string }) {
   const mountRef = useRef<HTMLDivElement>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ src: string; message: string } | null>(null);
+  const error = failure?.src === src ? failure.message : null;
 
   useEffect(() => {
     const mount = mountRef.current;
     if (!mount) return;
+    const controller = new AbortController();
     const w = mount.clientWidth || 800;
     const h = mount.clientHeight || 600;
 
@@ -56,24 +58,17 @@ export default function ThreeViewer({ src, ext }: { src: string; ext: string }) 
       scene.add(object);
       fitCamera(camera, controls, object);
     };
-    const onErr = () => setError("Couldn't load 3D model.");
-
     const e = ext.toLowerCase();
-    try {
-      if (e === "stl") {
-        new STLLoader().load(src, (geo) => onLoad(new THREE.Mesh(geo, material)), undefined, onErr);
-      } else if (e === "ply") {
-        new PLYLoader().load(src, (geo) => { geo.computeVertexNormals(); onLoad(new THREE.Mesh(geo, material)); }, undefined, onErr);
-      } else if (e === "obj") {
-        new OBJLoader().load(src, onLoad, undefined, onErr);
-      } else if (e === "gltf" || e === "glb") {
-        new GLTFLoader().load(src, (g) => onLoad(g.scene), undefined, onErr);
-      } else {
-        setError("Unsupported 3D format.");
-      }
-    } catch {
-      onErr();
-    }
+    void (async () => {
+      const response = await fetch(src, { credentials: "include", signal: controller.signal });
+      if (!response.ok) throw new Error(`failed (${response.status})`);
+      const data: string | ArrayBuffer = e === "obj" ? await response.text() : await response.arrayBuffer();
+      if (e === "stl") onLoad(new THREE.Mesh(new STLLoader().parse(data as ArrayBuffer), material));
+      else if (e === "ply") { const geometry = new PLYLoader().parse(data as ArrayBuffer); geometry.computeVertexNormals(); onLoad(new THREE.Mesh(geometry, material)); }
+      else if (e === "obj") onLoad(new OBJLoader().parse(data as string));
+      else if (e === "gltf" || e === "glb") new GLTFLoader().parse(data as ArrayBuffer, src.slice(0, src.lastIndexOf("/") + 1), (gltf) => onLoad(gltf.scene), (cause) => { throw cause; });
+      else throw new Error("Unsupported 3D format.");
+    })().catch((cause: Error) => { if (cause.name !== "AbortError") setFailure({ src, message: cause.message || "Couldn't load 3D model." }); });
 
     let raf = 0;
     const animate = () => {
@@ -93,8 +88,20 @@ export default function ThreeViewer({ src, ext }: { src: string; ext: string }) 
 
     return () => {
       cancelAnimationFrame(raf);
+      controller.abort();
       window.removeEventListener("resize", onResize);
       controls.dispose();
+      scene.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+        mesh.geometry?.dispose();
+        const materials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+        for (const current of materials) {
+          for (const value of Object.values(current)) if (value instanceof THREE.Texture) value.dispose();
+          current.dispose();
+        }
+      });
+      material.dispose();
+      renderer.renderLists.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode) renderer.domElement.parentNode.removeChild(renderer.domElement);
     };

@@ -5,6 +5,7 @@
 // - Unwraps the `{ status, result|results }` envelope and throws ApiRequestError
 //   on `status: "error"` or non-2xx responses.
 import type { ApiError } from "./types";
+import { withBase } from "@/lib/paths";
 
 export class ApiRequestError extends Error {
   constructor(
@@ -25,11 +26,18 @@ interface RequestOptions {
   /** Query params appended to the path. */
   query?: Record<string, string | number | boolean | undefined>;
   signal?: AbortSignal;
+  headers?: Record<string, string>;
 }
 
-function buildUrl(path: string, query?: RequestOptions["query"]): string {
-  // Relative to current origin; the API lives under /api on the same host.
-  const url = path.startsWith("/") ? path : `/${path}`;
+export interface ApiEnvelope<T> {
+  result?: T;
+  results?: T;
+  permissions?: unknown;
+  headers: Headers;
+}
+
+export function buildUrl(path: string, query?: RequestOptions["query"]): string {
+  const url = withBase(path);
   if (!query) return url;
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(query)) {
@@ -39,7 +47,7 @@ function buildUrl(path: string, query?: RequestOptions["query"]): string {
   return s ? `${url}?${s}` : url;
 }
 
-async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+async function requestEnvelope<T>(path: string, opts: RequestOptions = {}): Promise<ApiEnvelope<T>> {
   const res = await fetch(buildUrl(path, opts.query), {
     method: opts.method ?? "GET",
     credentials: "include",
@@ -49,6 +57,7 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     headers: {
       "X-Requested-With": "XmlHttpRequest",
       ...(opts.body ? { "Content-Type": "application/json" } : {}),
+      ...opts.headers,
     },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
     signal: opts.signal,
@@ -63,7 +72,7 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     } catch {
       if (!res.ok) throw new ApiRequestError(res.statusText || "request failed", res.status);
       // Non-JSON success (e.g. raw file content handlers) — return as-is.
-      return text as unknown as T;
+      return { result: text as unknown as T, headers: res.headers };
     }
   }
 
@@ -72,7 +81,12 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     throw new ApiRequestError(env?.message || res.statusText || "request failed", res.status);
   }
   // Prefer `result`, fall back to `results` (collection envelope).
-  return (env?.result ?? env?.results) as T;
+  return { ...env, headers: res.headers };
+}
+
+async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const env = await requestEnvelope<T>(path, opts);
+  return (env.result ?? env.results) as T;
 }
 
 export const api = {
@@ -84,4 +98,6 @@ export const api = {
     request<T>(path, { ...opts, method: "PATCH", body }),
   delete: <T>(path: string, opts?: Omit<RequestOptions, "method" | "body">) =>
     request<T>(path, { ...opts, method: "DELETE" }),
+  getEnvelope: <T>(path: string, opts?: Omit<RequestOptions, "method" | "body">) =>
+    requestEnvelope<T>(path, { ...opts, method: "GET" }),
 };

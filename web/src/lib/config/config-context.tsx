@@ -7,6 +7,10 @@ import { createContext, useContext, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { configApi } from "@/lib/api/endpoints";
 import type { PublicConfig } from "@/lib/api/types";
+import { bootBase, normalizeBase, withBase } from "@/lib/paths";
+import { Button } from "@/registry/aurora/ui/button";
+import { Callout } from "@/registry/aurora/ui/callout";
+import { Spinner } from "@/registry/aurora/ui/spinner";
 
 interface ConfigContextValue {
   config: PublicConfig;
@@ -15,46 +19,25 @@ interface ConfigContextValue {
 }
 
 const ConfigContext = createContext<ConfigContextValue | null>(null);
-
 export function ConfigProvider({ children }: { children: ReactNode }) {
-  const { data, isLoading, isError, error, refetch } = useQuery({
+  const query = useQuery({
     queryKey: ["config"],
     queryFn: ({ signal }) => configApi.get(signal),
     staleTime: Infinity,
   });
 
-  if (isLoading) {
+  if (query.isLoading) return <main className="flex min-h-dvh items-center justify-center"><Spinner /></main>;
+  if (query.isError || !query.data) {
     return (
-      <div className="flex min-h-dvh items-center justify-center">
-        <p className="aurora-text-meta">Loading…</p>
-      </div>
+      <main className="mx-auto flex min-h-dvh max-w-md items-center px-6">
+        <Callout title="Could not load Filestash" variant="error">
+          <div className="grid gap-3"><span>{query.error instanceof Error ? query.error.message : "The runtime configuration is unavailable."}</span><Button size="sm" variant="neutral" onClick={() => void query.refetch()}>Retry</Button></div>
+        </Callout>
+      </main>
     );
   }
-
-  if (isError || !data) {
-    return (
-      <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-3 px-6 text-center">
-        <p className="aurora-text-section">Couldn&apos;t reach the server.</p>
-        <p className="aurora-text-body text-[var(--aurora-text-muted)]">
-          {error instanceof Error ? error.message : "The configuration endpoint is unavailable."}
-        </p>
-        <button
-          className="aurora-text-control text-[var(--aurora-accent-primary)]"
-          onClick={() => refetch()}
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
-  const base = normalizeBase(data.base);
-  return <ConfigContext.Provider value={{ config: data, base }}>{children}</ConfigContext.Provider>;
-}
-
-function normalizeBase(base?: string): string {
-  if (!base || base === "") return "/";
-  return base.endsWith("/") ? base : `${base}/`;
+  const base = normalizeBase(query.data.base ?? bootBase());
+  return <ConfigContext.Provider value={{ config: { ...query.data, base }, base }}><link rel="stylesheet" href={withBase("/custom.css", base)} />{children}</ConfigContext.Provider>;
 }
 
 export function useConfig(): ConfigContextValue {

@@ -12,7 +12,7 @@ export interface ApiResults<T> {
   status: "ok";
   results: T;
   /** Present on list endpoints that attach permissions metadata. */
-  permissions?: unknown;
+  permissions?: DirectoryCapabilities;
 }
 
 /** Error envelope: `{ status: "error", message }` with a non-2xx HTTP status. */
@@ -33,12 +33,34 @@ export interface FileEntry {
   offline?: boolean;
 }
 
+export interface DirectoryCapabilities {
+  can_read?: boolean;
+  can_create_file?: boolean;
+  can_create_directory?: boolean;
+  can_rename?: boolean;
+  can_move?: boolean;
+  can_upload?: boolean;
+  can_delete?: boolean;
+  can_share?: boolean;
+  hide_extension?: boolean;
+  refresh_on_create?: boolean;
+}
+
+export interface DirectoryListing {
+  entries: FileEntry[];
+  permissions: DirectoryCapabilities;
+  /** Opaque server cursor for the following page, when one exists. */
+  nextCursor?: string;
+}
+
 /** server/ctrl.Session */
 export interface Session {
   home?: string;
   is_authenticated: boolean;
   backendID: string;
   authorization?: string;
+  /** Local post-authentication continuation supplied by the server. */
+  next?: string;
 }
 
 /** server/common.FormElement. NOTE: Go's `Name` field serializes as `label`. */
@@ -86,3 +108,6 @@ export interface PublicConfig {
   connections?: Connection[];
   [key: string]: unknown;
 }
+
+export type PluginApplication = "filestash-react-viewer-v1" | "iframe" | string;
+export type PluginOpeners = Record<string, readonly [PluginApplication, string]>;

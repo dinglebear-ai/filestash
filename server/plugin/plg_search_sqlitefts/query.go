@@ -13,7 +13,7 @@ type SearchEngine struct {
 }
 
 type searchDaemon interface {
-	GetCrawler(app *App, create bool) (Crawler, error)
+	GetCrawler(app *App, create bool) (*Crawler, error)
 }
 
 func (this SearchEngine) Query(app App, path string, keyword string) ([]IFile, error) {

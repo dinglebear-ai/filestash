@@ -1,8 +1,8 @@
 package plg_widget_chat
 
 import (
-	"os"
 	"database/sql"
+	"os"
 
 	. "github.com/mickael-kerjean/filestash/server/common"
 )
@@ -16,9 +16,14 @@ func init() {
 			os.Exit(1)
 		}
 	})
+	Hooks.Register.OnQuit(func() {
+		if db != nil {
+			_ = db.Close()
+		}
+	})
 }
 
-func initDB () error {
+func initDB() error {
 	var err error
 	db, err = sql.Open("sqlite3", GetAbsolutePath(DB_PATH, "chat.db"))
 	if err != nil {

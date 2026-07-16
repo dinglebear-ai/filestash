@@ -2,9 +2,11 @@ package middleware
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -46,6 +48,15 @@ func AdminOnly(fn HandlerFunc) HandlerFunc {
 			json.Unmarshal([]byte(str), &token)
 
 			if token.IsValid() == false || token.IsAdmin() == false {
+				SendErrorResult(res, ErrPermissionDenied)
+				return
+			}
+		} else {
+			expected := os.Getenv("FILESTASH_SETUP_TOKEN")
+			provided := req.Header.Get("X-Filestash-Setup-Token")
+			isSetupRoute := TrimBase(req.URL.Path) == "/admin/api/config" && (req.Method == http.MethodGet || req.Method == http.MethodPost)
+			validToken := len(expected) >= 32 && len(expected) == len(provided) && subtle.ConstantTimeCompare([]byte(expected), []byte(provided)) == 1
+			if !isSetupRoute || !validToken {
 				SendErrorResult(res, ErrPermissionDenied)
 				return
 			}
@@ -176,11 +187,7 @@ func _extractAuthorization(req *http.Request) (token string) {
 	if authHeader != "" && strings.HasPrefix(authHeader, "Bearer ") {
 		return strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
 	}
-	// strategy 3: Authorization query param
-	if auth := req.URL.Query().Get("authorization"); auth != "" {
-		return auth
-	}
-	// strategy 4: Authorization from basic auth/
+	// strategy 3: Authorization from basic auth/
 	if u, p, ok := req.BasicAuth(); ok && u == "authorization" {
 		return p
 	}

@@ -20,6 +20,11 @@ func (this AuthM) Cat(ctx *App, path string) error {
 	return nil
 }
 
+func (this AuthM) Stat(ctx *App, path string) error {
+	Log.Stdout("STAT %+v", ctx.Session)
+	return nil
+}
+
 func (this AuthM) Mkdir(ctx *App, path string) error {
 	Log.Stdout("MKDIR %+v", ctx.Session)
 	return ErrNotAllowed

@@ -53,7 +53,7 @@ func NewAuthUnix(machineName string, uid, gid uint32, gids []GroupLabel, gidsHin
 		Gids:        toGids(gids),
 	})
 	return rpc.Auth{
-		1, // = AUTH_SYS in RFC5531
-		w.Bytes(),
+		Flavor: 1, // = AUTH_SYS in RFC5531
+		Body:   w.Bytes(),
 	}
 }

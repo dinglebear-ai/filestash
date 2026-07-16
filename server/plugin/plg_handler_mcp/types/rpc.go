@@ -17,7 +17,7 @@ type JSONRPCResponse struct {
 type JSONRPCMethod struct {
 	JSONRPC string      `json:"jsonrpc"`
 	Method  string      `json:"method"`
-	Params  interface{} `json:"params",omitempty`
+	Params  interface{} `json:"params,omitempty"`
 }
 
 type JSONRPCError struct {

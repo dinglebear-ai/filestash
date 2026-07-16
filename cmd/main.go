@@ -10,6 +10,7 @@ import (
 	"github.com/mickael-kerjean/filestash/server"
 	. "github.com/mickael-kerjean/filestash/server/common"
 	"github.com/mickael-kerjean/filestash/server/ctrl"
+	"github.com/mickael-kerjean/filestash/server/model"
 	_ "github.com/mickael-kerjean/filestash/server/pkg"
 	"github.com/mickael-kerjean/filestash/server/pkg/extension"
 	"github.com/mickael-kerjean/filestash/server/pkg/workflow"
@@ -23,8 +24,15 @@ func main() {
 }
 
 func Run(router *mux.Router) {
+	runContext := withSignal()
 	check(InitLogger(), "Logger init failed. err=%s")
 	check(InitConfig(), "Config init failed. err=%s")
+	check(model.InitStore(runContext), "Share store init failed. err=%s")
+	defer func() {
+		if err := model.CloseStore(); err != nil {
+			Log.Warning("Share store close failed. err=%s", err.Error())
+		}
+	}()
 	check(extension.Discovery(), "Plugin Discovery failed. err=%s")
 	check(ctrl.InitPluginList(embed.EmbedPluginList, extension.All()), "Plugin Initialisation failed. err=%s")
 	check(workflow.Init(), "Worklow Initialisation failure. err=%s")
@@ -43,7 +51,7 @@ func Run(router *mux.Router) {
 		server.DebugRoutes(router)
 	}
 	server.CatchAll(router)
-	Hooks.Get.Starter()(withSignal(), router)
+	Hooks.Get.Starter()(runContext, router)
 	for _, fn := range Hooks.Get.OnQuit() {
 		fn()
 	}

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -28,10 +29,11 @@ func init() {
 }
 
 type Dav struct {
-	which  string
-	url    string
-	params map[string]string
-	cache  map[string]interface{}
+	which   string
+	url     string
+	params  map[string]string
+	cache   map[string]interface{}
+	cacheMu *sync.RWMutex
 }
 
 func (this Dav) Init(params map[string]string, app *App) (IBackend, error) {
@@ -40,9 +42,11 @@ func (this Dav) Init(params map[string]string, app *App) (IBackend, error) {
 		return backend, nil
 	}
 	backend := Dav{
-		url:    strings.ReplaceAll(params["url"], "%{username}", url.PathEscape(params["username"])),
-		which:  params["type"],
-		params: params,
+		url:     strings.ReplaceAll(params["url"], "%{username}", url.PathEscape(params["username"])),
+		which:   params["type"],
+		params:  params,
+		cache:   make(map[string]interface{}),
+		cacheMu: &sync.RWMutex{},
 	}
 	DavCache.Set(params, &backend)
 	return backend, nil
@@ -390,8 +394,11 @@ func (this Dav) getUserURI() (string, error) {
 	var res *http.Response
 	var err error
 
-	if this.cache["getUserURI"] != nil {
-		return this.cache["getUserURI"].(string), nil
+	this.cacheMu.RLock()
+	cachedUserURI, hasUserURI := this.cache["getUserURI"].(string)
+	this.cacheMu.RUnlock()
+	if hasUserURI {
+		return cachedUserURI, nil
 	}
 
 	if res, err = this.request(
@@ -424,10 +431,9 @@ func (this Dav) getUserURI() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if this.cache == nil {
-		this.cache = make(map[string]interface{})
-	}
+	this.cacheMu.Lock()
 	this.cache["getUserURI"] = url
+	this.cacheMu.Unlock()
 	DavCache.Set(this.params, &this)
 	return url, nil
 }
@@ -437,8 +443,11 @@ func (this Dav) getCollections() ([]DavCollection, error) {
 	var res *http.Response
 	var err error
 
-	if this.cache["getCollections"] != nil {
-		return this.cache["getCollections"].([]DavCollection), nil
+	this.cacheMu.RLock()
+	cachedCollections, hasCollections := this.cache["getCollections"].([]DavCollection)
+	this.cacheMu.RUnlock()
+	if hasCollections {
+		return append([]DavCollection(nil), cachedCollections...), nil
 	}
 
 	if uri, err = this.getUserURI(); err != nil {
@@ -482,10 +491,9 @@ func (this Dav) getCollections() ([]DavCollection, error) {
 		}
 	}
 
-	if this.cache == nil {
-		this.cache = make(map[string]interface{})
-	}
+	this.cacheMu.Lock()
 	this.cache["getCollections"] = collections
+	this.cacheMu.Unlock()
 	DavCache.Set(this.params, &this)
 	return collections, nil
 }

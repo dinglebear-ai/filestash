@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/gorilla/mux"
 
@@ -25,6 +26,8 @@ var Hooks = struct {
 	Get:      Get{},
 	Register: Register{},
 }
+
+var pluginRegistryMu sync.RWMutex
 
 type Options struct {
 	ID string
@@ -47,10 +50,14 @@ func WithID(id string) Option {
 var process_file_content_before_send []func(io.ReadCloser, *App, *http.ResponseWriter, *http.Request) (io.ReadCloser, bool, error)
 
 func (this Register) ProcessFileContentBeforeSend(fn func(io.ReadCloser, *App, *http.ResponseWriter, *http.Request) (io.ReadCloser, bool, error)) {
+	pluginRegistryMu.Lock()
+	defer pluginRegistryMu.Unlock()
 	process_file_content_before_send = append(process_file_content_before_send, fn)
 }
 func (this Get) ProcessFileContentBeforeSend() []func(io.ReadCloser, *App, *http.ResponseWriter, *http.Request) (io.ReadCloser, bool, error) {
-	return process_file_content_before_send
+	pluginRegistryMu.RLock()
+	defer pluginRegistryMu.RUnlock()
+	return append([]func(io.ReadCloser, *App, *http.ResponseWriter, *http.Request) (io.ReadCloser, bool, error){}, process_file_content_before_send...)
 }
 
 /*
@@ -64,10 +71,14 @@ func (this Get) ProcessFileContentBeforeSend() []func(io.ReadCloser, *App, *http
 var http_endpoint []func(*mux.Router) error
 
 func (this Register) HttpEndpoint(fn func(*mux.Router) error) {
+	pluginRegistryMu.Lock()
+	defer pluginRegistryMu.Unlock()
 	http_endpoint = append(http_endpoint, fn)
 }
 func (this Get) HttpEndpoint() []func(*mux.Router) error {
-	return http_endpoint
+	pluginRegistryMu.RLock()
+	defer pluginRegistryMu.RUnlock()
+	return append([]func(*mux.Router) error{}, http_endpoint...)
 }
 
 /*
@@ -127,11 +138,19 @@ func (this Get) Starter() func(context.Context, *mux.Router) {
 var authentication_middleware map[string]IAuthentication = make(map[string]IAuthentication, 0)
 
 func (this Register) AuthenticationMiddleware(id string, am IAuthentication) {
+	pluginRegistryMu.Lock()
+	defer pluginRegistryMu.Unlock()
 	authentication_middleware[id] = am
 }
 
 func (this Get) AuthenticationMiddleware() map[string]IAuthentication {
-	return authentication_middleware
+	pluginRegistryMu.RLock()
+	defer pluginRegistryMu.RUnlock()
+	out := make(map[string]IAuthentication, len(authentication_middleware))
+	for id, middleware := range authentication_middleware {
+		out[id] = middleware
+	}
+	return out
 }
 
 /*
@@ -141,11 +160,15 @@ func (this Get) AuthenticationMiddleware() map[string]IAuthentication {
 var authorisation_middleware []IAuthorisation
 
 func (this Register) AuthorisationMiddleware(a IAuthorisation) {
+	pluginRegistryMu.Lock()
+	defer pluginRegistryMu.Unlock()
 	authorisation_middleware = append(authorisation_middleware, a)
 }
 
 func (this Get) AuthorisationMiddleware() []IAuthorisation {
-	return authorisation_middleware
+	pluginRegistryMu.RLock()
+	defer pluginRegistryMu.RUnlock()
+	return append([]IAuthorisation{}, authorisation_middleware...)
 }
 
 /*
@@ -172,11 +195,19 @@ func (this Get) SearchEngine() ISearch {
 var thumbnailer map[string]IThumbnailer = make(map[string]IThumbnailer)
 
 func (this Register) Thumbnailer(mimeType string, fn IThumbnailer) {
+	pluginRegistryMu.Lock()
+	defer pluginRegistryMu.Unlock()
 	thumbnailer[mimeType] = fn
 }
 
 func (this Get) Thumbnailer() map[string]IThumbnailer {
-	return thumbnailer
+	pluginRegistryMu.RLock()
+	defer pluginRegistryMu.RUnlock()
+	out := make(map[string]IThumbnailer, len(thumbnailer))
+	for mimeType, thumbnail := range thumbnailer {
+		out[mimeType] = thumbnail
+	}
+	return out
 }
 
 /*
@@ -206,19 +237,27 @@ func (this Register) Tracer(t ITracer) {
 var overrides []string
 
 func (this Register) FrontendOverrides(url string) {
+	pluginRegistryMu.Lock()
+	defer pluginRegistryMu.Unlock()
 	overrides = append(overrides, url)
 }
 func (this Get) FrontendOverrides() []string {
-	return overrides
+	pluginRegistryMu.RLock()
+	defer pluginRegistryMu.RUnlock()
+	return append([]string{}, overrides...)
 }
 
 var xdg_open []string
 
 func (this Register) XDGOpen(jsString string) {
+	pluginRegistryMu.Lock()
+	defer pluginRegistryMu.Unlock()
 	xdg_open = append(xdg_open, jsString)
 }
 func (this Get) XDGOpen() []string {
-	return xdg_open
+	pluginRegistryMu.RLock()
+	defer pluginRegistryMu.RUnlock()
+	return append([]string{}, xdg_open...)
 }
 
 var cssOverride = map[string]string{}
@@ -313,13 +352,17 @@ func (this Register) StaticPatch(patchFile []byte, opts ...Option) { // idempote
 	if options.ID == "" {
 		options.ID = QuickHash(string(patchFile), 10)
 	}
-	staticOverrides[options.ID] = patchFile
+	pluginRegistryMu.Lock()
+	staticOverrides[options.ID] = append([]byte(nil), patchFile...)
+	pluginRegistryMu.Unlock()
 }
 
 func (this Get) StaticPatch() [][]byte {
+	pluginRegistryMu.RLock()
+	defer pluginRegistryMu.RUnlock()
 	s := [][]byte{}
 	for _, v := range staticOverrides {
-		s = append(s, v)
+		s = append(s, append([]byte(nil), v...))
 	}
 	return s
 }

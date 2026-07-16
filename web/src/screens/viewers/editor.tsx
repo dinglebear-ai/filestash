@@ -2,51 +2,60 @@
 
 // Code/text editor (legacy application_editor) via CodeMirror 6: syntax highlight
 // by file extension, edit, and save (Ctrl/Cmd-S or the Save button -> POST cat).
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import CodeMirror from "@uiw/react-codemirror";
 import { tokyoNight } from "@uiw/codemirror-theme-tokyo-night";
-import { loadLanguage, type LanguageName } from "@uiw/codemirror-extensions-langs";
+import type { Extension } from "@codemirror/state";
 import { filesApi } from "@/lib/api/endpoints";
 import { Button } from "@/registry/aurora/ui/button";
+import { Callout } from "@/registry/aurora/ui/callout";
 
-// Map file extensions to CodeMirror language names (@uiw langs uses short names).
-const EXT_LANG: Record<string, string> = {
-  js: "js", jsx: "jsx", ts: "ts", tsx: "tsx", mjs: "js", cjs: "js",
-  json: "json", html: "html", htm: "html", css: "css", scss: "sass", sass: "sass", less: "less",
-  md: "markdown", markdown: "markdown", py: "python", rb: "ruby", go: "go", rs: "rust",
-  java: "java", c: "c", h: "c", cpp: "cpp", cc: "cpp", cs: "csharp", php: "php", swift: "swift",
-  kt: "kotlin", sh: "shell", bash: "shell", zsh: "shell", yaml: "yaml", yml: "yaml", toml: "toml",
-  xml: "xml", sql: "sql", lua: "lua", r: "r", dockerfile: "dockerfile",
-};
+async function languageExtension(ext: string): Promise<Extension[]> {
+  if (["js", "jsx", "mjs", "cjs", "ts", "tsx"].includes(ext)) {
+    const { javascript } = await import("@codemirror/lang-javascript");
+    return [javascript({ typescript: ext === "ts" || ext === "tsx", jsx: ext === "jsx" || ext === "tsx" })];
+  }
+  if (ext === "json") return [(await import("@codemirror/lang-json")).json()];
+  if (["html", "htm"].includes(ext)) return [(await import("@codemirror/lang-html")).html()];
+  if (["css", "scss", "sass", "less"].includes(ext)) return [(await import("@codemirror/lang-css")).css()];
+  if (["md", "markdown"].includes(ext)) return [(await import("@codemirror/lang-markdown")).markdown()];
+  if (ext === "py") return [(await import("@codemirror/lang-python")).python()];
+  if (ext === "sql") return [(await import("@codemirror/lang-sql")).sql()];
+  if (ext === "xml") return [(await import("@codemirror/lang-xml")).xml()];
+  return [];
+}
 
 export default function EditorViewer({ src, path }: { src: string; path: string }) {
-  const [value, setValue] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [document, setDocument] = useState<{ src: string; value: string } | null>(null);
+  const [loadError, setLoadError] = useState<{ src: string; message: string } | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [extensions, setExtensions] = useState<Extension[]>([]);
 
   const ext = path.split(".").slice(-1)[0]?.toLowerCase() ?? "";
-  const extensions = useMemo(() => {
-    const lang = EXT_LANG[ext];
-    const l = lang ? loadLanguage(lang as LanguageName) : null;
-    return l ? [l] : [];
-  }, [ext]);
+  const value = document?.src === src ? document.value : null;
+  const error = loadError?.src === src ? loadError.message : null;
 
   useEffect(() => {
     let active = true;
-    fetch(src, { credentials: "include" })
+    void languageExtension(ext).then((loaded) => active && setExtensions(loaded));
+    return () => { active = false; };
+  }, [ext]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(src, { credentials: "include", signal: controller.signal })
       .then((r) => (r.ok ? r.text() : Promise.reject(new Error(`failed (${r.status})`))))
-      .then((t) => active && setValue(t))
-      .catch((e) => active && setError(e.message));
-    return () => {
-      active = false;
-    };
+      .then((text) => setDocument({ src, value: text }))
+      .catch((cause: Error) => { if (cause.name !== "AbortError") setLoadError({ src, message: cause.message }); });
+    return () => controller.abort();
   }, [src]);
 
   const save = async () => {
     if (value == null) return;
     setSaveState("saving");
     try {
-      await filesApi.save(path, value);
+      if (document?.src !== src) return;
+      await filesApi.save(path, document.value);
       setSaveState("saved");
       setTimeout(() => setSaveState("idle"), 1500);
     } catch {
@@ -54,7 +63,7 @@ export default function EditorViewer({ src, path }: { src: string; path: string 
     }
   };
 
-  if (error) return <p className="aurora-text-body text-[var(--aurora-error)]">{error}</p>;
+  if (error) return <Callout title="Could not load editor" variant="error">{error}</Callout>;
   if (value == null) return <p className="aurora-text-meta">Loading…</p>;
 
   return (
@@ -78,11 +87,12 @@ export default function EditorViewer({ src, path }: { src: string; path: string 
         </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
+        {saveState === "error" ? <Callout title="Changes were not saved" variant="error">Check the connection and retry.</Callout> : null}
         <CodeMirror
           value={value}
           theme={tokyoNight}
           extensions={extensions}
-          onChange={(v) => setValue(v)}
+          onChange={(nextValue) => setDocument({ src, value: nextValue })}
           height="100%"
           style={{ height: "100%", fontSize: 13 }}
         />

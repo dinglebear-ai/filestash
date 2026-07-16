@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 )
 
 const BACKEND_NIL = "_nothing_"
@@ -11,10 +12,11 @@ const BACKEND_NIL = "_nothing_"
 var Backend = NewDriver()
 
 func NewDriver() Driver {
-	return Driver{make(map[string]IBackend)}
+	return Driver{ds: make(map[string]IBackend)}
 }
 
 type Driver struct {
+	mu sync.RWMutex
 	ds map[string]IBackend
 }
 
@@ -22,11 +24,15 @@ func (d *Driver) Register(name string, driver IBackend) {
 	if driver == nil {
 		panic("backend: register invalid nil backend")
 	}
+	d.mu.Lock()
 	d.ds[name] = driver
+	d.mu.Unlock()
 }
 
 func (d *Driver) Get(name string) IBackend {
+	d.mu.RLock()
 	b := d.ds[name]
+	d.mu.RUnlock()
 	if b == nil || name == BACKEND_NIL {
 		return Nothing{}
 	}
@@ -34,7 +40,13 @@ func (d *Driver) Get(name string) IBackend {
 }
 
 func (d *Driver) Drivers() map[string]IBackend {
-	return d.ds
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	out := make(map[string]IBackend, len(d.ds))
+	for name, driver := range d.ds {
+		out[name] = driver
+	}
+	return out
 }
 
 type Nothing struct{}

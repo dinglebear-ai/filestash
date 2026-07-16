@@ -16,6 +16,8 @@ type PSQL struct {
 	ctx context.Context
 }
 
+var _ IPagedBackend = PSQL{}
+
 func init() {
 	Backend.Register("psql", PSQL{})
 }

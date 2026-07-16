@@ -1,9 +1,12 @@
 package server
 
 import (
+	"crypto/subtle"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/pprof"
+	"os"
 	"runtime"
 	"runtime/debug"
 	"strconv"
@@ -126,25 +129,44 @@ func CatchAll(r *mux.Router) {
 }
 
 func DebugRoutes(r *mux.Router) {
-	r.HandleFunc("/debug/pprof/", pprof.Index)
-	r.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	r.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	r.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	r.HandleFunc("/debug/pprof/trace", pprof.Trace)
-	r.Handle("/debug/pprof/goroutine", pprof.Handler("goroutine"))
-	r.Handle("/debug/pprof/heap", pprof.Handler("heap"))
-	r.Handle("/debug/pprof/threadcreate", pprof.Handler("threadcreate"))
-	r.Handle("/debug/pprof/block", pprof.Handler("block"))
-	r.Handle("/debug/pprof/allocs", pprof.Handler("allocs"))
-	r.Handle("/debug/pprof/mutex", pprof.Handler("mutex"))
-	r.HandleFunc("/debug/free", func(w http.ResponseWriter, r *http.Request) {
+	token := os.Getenv("FILESTASH_DEBUG_TOKEN")
+	if len(token) < 32 {
+		Log.Warning("DEBUG requested but FILESTASH_DEBUG_TOKEN is missing or shorter than 32 characters; debug routes disabled")
+		return
+	}
+	operatorOnly := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			host, _, err := net.SplitHostPort(req.RemoteAddr)
+			if err != nil {
+				host = req.RemoteAddr
+			}
+			provided := req.Header.Get("X-Filestash-Debug-Token")
+			if !net.ParseIP(host).IsLoopback() || len(provided) != len(token) || subtle.ConstantTimeCompare([]byte(provided), []byte(token)) != 1 {
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, req)
+		})
+	}
+	r.Handle("/debug/pprof/", operatorOnly(http.HandlerFunc(pprof.Index)))
+	r.Handle("/debug/pprof/cmdline", operatorOnly(http.HandlerFunc(pprof.Cmdline)))
+	r.Handle("/debug/pprof/profile", operatorOnly(http.HandlerFunc(pprof.Profile)))
+	r.Handle("/debug/pprof/symbol", operatorOnly(http.HandlerFunc(pprof.Symbol)))
+	r.Handle("/debug/pprof/trace", operatorOnly(http.HandlerFunc(pprof.Trace)))
+	r.Handle("/debug/pprof/goroutine", operatorOnly(pprof.Handler("goroutine")))
+	r.Handle("/debug/pprof/heap", operatorOnly(pprof.Handler("heap")))
+	r.Handle("/debug/pprof/threadcreate", operatorOnly(pprof.Handler("threadcreate")))
+	r.Handle("/debug/pprof/block", operatorOnly(pprof.Handler("block")))
+	r.Handle("/debug/pprof/allocs", operatorOnly(pprof.Handler("allocs")))
+	r.Handle("/debug/pprof/mutex", operatorOnly(pprof.Handler("mutex")))
+	r.Handle("/debug/free", operatorOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		debug.FreeOSMemory()
 		w.Write([]byte("DONE"))
-	})
+	})))
 	bToMb := func(b uint64) string {
 		return strconv.Itoa(int(b / 1024 / 1024))
 	}
-	r.HandleFunc("/debug/memory", func(w http.ResponseWriter, r *http.Request) {
+	r.Handle("/debug/memory", operatorOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
 		w.Write([]byte("<p style='font-family:monospace'>"))
@@ -153,7 +175,7 @@ func DebugRoutes(r *mux.Router) {
 		w.Write([]byte("Sys        = " + bToMb(m.Sys) + "MiB <br>"))
 		w.Write([]byte("NumGC      = " + strconv.Itoa(int(m.NumGC))))
 		w.Write([]byte("</p>"))
-	})
+	})))
 }
 
 func PluginRoutes(r *mux.Router) {

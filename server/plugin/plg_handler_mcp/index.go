@@ -13,6 +13,9 @@ import (
 
 type Server struct {
 	sessions sync.Map
+	clients  sync.Map
+	requests sync.Map
+	codes    sync.Map
 }
 
 func init() {
@@ -25,7 +28,7 @@ func init() {
 			return nil
 		}
 		srv := Server{}
-		m := []Middleware{WithCORS}
+		m := []Middleware{WithCORS, RateLimiter}
 		r.HandleFunc("/sse", NewMiddlewareChain(srv.sseHandler, m)).Methods("GET", "OPTIONS")
 		r.HandleFunc("/messages", NewMiddlewareChain(srv.messageHandler, m)).Methods("POST", "OPTIONS")
 		r.HandleFunc("/.well-known/oauth-authorization-server", NewMiddlewareChain(srv.WellKnownOAuthAuthorizationServerHandler, m)).Methods("GET", "OPTIONS")
@@ -33,9 +36,9 @@ func init() {
 		r.HandleFunc("/.well-known/oauth-protected-resource/sse", NewMiddlewareChain(srv.WellKnownOAuthProtectedResourceHandler, m)).Methods("GET", "OPTIONS")
 
 		r.HandleFunc("/mcp/token", NewMiddlewareChain(srv.TokenHandler, m)).Methods("POST")
-		m = []Middleware{}
+		m = []Middleware{SessionTry}
 		r.HandleFunc("/mcp/authorize", NewMiddlewareChain(srv.AuthorizeHandler, m)).Methods("GET")
-		m = []Middleware{BodyParser}
+		m = []Middleware{RateLimiter, BodyParserWithLimit(64 << 10)}
 		r.HandleFunc("/mcp/register", NewMiddlewareChain(srv.RegisterHandler, m)).Methods("POST")
 		m = []Middleware{SessionStart, LoggedInOnly}
 		r.HandleFunc("/api/mcp", NewMiddlewareChain(srv.CallbackHandler, m)).Methods("GET")

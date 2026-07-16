@@ -34,7 +34,6 @@ type APIErrorMessage struct {
 func SendSuccessResult(res http.ResponseWriter, data interface{}) {
 	encoder := json.NewEncoder(res)
 	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", IndentSize)
 	encoder.Encode(APISuccessResult{"ok", data})
 }
 
@@ -71,21 +70,18 @@ func SendSuccessResultWithEtagAndGzip(res http.ResponseWriter, req *http.Request
 func SendSuccessResults(res http.ResponseWriter, data interface{}) {
 	encoder := json.NewEncoder(res)
 	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", IndentSize)
 	encoder.Encode(APISuccessResults{"ok", data})
 }
 
 func SendSuccessResultsWithMetadata(res http.ResponseWriter, data interface{}, p interface{}) {
 	encoder := json.NewEncoder(res)
 	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", IndentSize)
 	encoder.Encode(APISuccessResultsWithMetadata{"ok", data, p})
 }
 
 func SendErrorResult(res http.ResponseWriter, err error) {
 	encoder := json.NewEncoder(res)
 	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", IndentSize)
 	obj, ok := err.(interface{ Status() int })
 	if ok == true {
 		res.WriteHeader(obj.Status())
@@ -104,7 +100,6 @@ func SendErrorResult(res http.ResponseWriter, err error) {
 func SendRaw(res http.ResponseWriter, data interface{}) {
 	encoder := json.NewEncoder(res)
 	encoder.SetEscapeHTML(false)
-	encoder.SetIndent("", IndentSize)
 	encoder.Encode(data)
 }
 

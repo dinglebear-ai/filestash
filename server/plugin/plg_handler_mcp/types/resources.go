@@ -12,7 +12,7 @@ type TextContent struct {
 }
 
 type BinaryContent struct {
-	URI      string `json:uri"`
+	URI      string `json:"uri"`
 	MimeType string `json:"mimeType"`
 	Blob     []byte `json:"blob"`
 }

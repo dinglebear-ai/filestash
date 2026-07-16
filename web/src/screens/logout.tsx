@@ -5,6 +5,9 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { sessionApi } from "@/lib/api/endpoints";
+import { Card, CardHeader, CardTitle } from "@/registry/aurora/ui/card";
+import { Spinner } from "@/registry/aurora/ui/spinner";
+import { withBase } from "@/lib/paths";
 
 export function LogoutScreen() {
   const router = useRouter();
@@ -16,13 +19,18 @@ export function LogoutScreen() {
       .catch(() => undefined)
       .finally(() => {
         queryClient.removeQueries({ queryKey: ["session"] });
-        router.replace("/");
+        router.replace(withBase("/"));
       });
   }, [router, queryClient]);
 
   return (
     <main className="flex min-h-dvh items-center justify-center px-6">
-      <p className="aurora-text-body text-[var(--aurora-text-muted)]">Signing out…</p>
+      <Card>
+        <CardHeader className="items-center text-center">
+          <Spinner />
+          <CardTitle as="h1">Signing out</CardTitle>
+        </CardHeader>
+      </Card>
     </main>
   );
 }

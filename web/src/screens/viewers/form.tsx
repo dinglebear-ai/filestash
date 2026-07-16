@@ -3,6 +3,11 @@
 // Form viewer (legacy application_form, application/x-form). Renders the form's
 // JSON payload as a readable key/value list, falling back to formatted JSON.
 import { useEffect, useState } from "react";
+import { CodeBlock } from "@/registry/aurora/blocks/workspace/code-block/code-block";
+import { Callout } from "@/registry/aurora/ui/callout";
+import { Card, CardContent } from "@/registry/aurora/ui/card";
+import { DescriptionItem, DescriptionList } from "@/registry/aurora/ui/description-list";
+import { SkeletonRow } from "@/registry/aurora/ui/skeleton";
 
 export default function FormViewer({ src }: { src: string }) {
   const [data, setData] = useState<unknown>(undefined);
@@ -25,29 +30,41 @@ export default function FormViewer({ src }: { src: string }) {
     };
   }, [src]);
 
-  if (error) return <p className="aurora-text-body text-[var(--aurora-error)]">{error}</p>;
-  if (data === undefined) return <p className="aurora-text-meta">Loading…</p>;
+  if (error) {
+    return (
+      <Callout title="Could not load form data" variant="error">
+        {error}
+      </Callout>
+    );
+  }
+  if (data === undefined) {
+    return (
+      <Card className="w-full max-w-xl">
+        <CardContent className="grid gap-3 p-4">
+          <SkeletonRow />
+          <SkeletonRow />
+          <SkeletonRow />
+        </CardContent>
+      </Card>
+    );
+  }
 
   const entries =
     data && typeof data === "object" && !Array.isArray(data) ? Object.entries(data as Record<string, unknown>) : null;
 
   return (
-    <div
-      className="w-full max-w-xl rounded-[var(--aurora-radius-2)] p-5"
-      style={{ background: "var(--aurora-panel-strong)", border: "1px solid var(--aurora-border-default)" }}
-    >
+    <Card elevated className="w-full max-w-xl">
+      <CardContent className="p-5">
       {entries ? (
-        <dl className="flex flex-col gap-3">
+        <DescriptionList>
           {entries.map(([k, v]) => (
-            <div key={k} className="flex flex-col gap-0.5">
-              <dt className="aurora-text-label text-[var(--aurora-text-muted)]">{k}</dt>
-              <dd className="aurora-text-body">{typeof v === "object" ? JSON.stringify(v) : String(v)}</dd>
-            </div>
+            <DescriptionItem key={k} label={k} value={typeof v === "object" ? JSON.stringify(v) : String(v)} />
           ))}
-        </dl>
+        </DescriptionList>
       ) : (
-        <pre className="aurora-text-code whitespace-pre-wrap">{JSON.stringify(data, null, 2)}</pre>
+        <CodeBlock language="json" code={JSON.stringify(data, null, 2)} />
       )}
-    </div>
+      </CardContent>
+    </Card>
   );
 }

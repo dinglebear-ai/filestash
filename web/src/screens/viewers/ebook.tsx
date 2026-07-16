@@ -15,14 +15,13 @@ export default function EbookViewer({ src }: { src: string }) {
     if (!area) return;
     let destroyed = false;
     let book: ReturnType<typeof ePub> | null = null;
-    try {
+    void Promise.resolve().then(() => {
+      if (destroyed) return;
       book = ePub(src, { openAs: "epub" });
       const rendition = book.renderTo(area, { width: "100%", height: "100%", spread: "auto" });
       renditionRef.current = rendition;
-      rendition.display().catch(() => !destroyed && setError("Couldn't render this ebook."));
-    } catch {
-      setError("Couldn't open this ebook.");
-    }
+      return rendition.display();
+    }).catch(() => !destroyed && setError("Couldn't open this ebook."));
     return () => {
       destroyed = true;
       renditionRef.current = null;

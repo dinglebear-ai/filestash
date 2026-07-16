@@ -20,6 +20,8 @@ type Mysql struct {
 	db     *sql.DB
 }
 
+var _ IPagedBackend = Mysql{}
+
 func init() {
 	Backend.Register("mysql", Mysql{})
 }
@@ -84,6 +86,174 @@ func (this Mysql) LoginForm() Form {
 }
 
 func (this Mysql) Ls(path string) ([]os.FileInfo, error) {
+	entries, _, err := this.LsPage(path, "", 1000)
+	return entries, err
+}
+
+func (this Mysql) LsPage(path string, cursor string, limit int) ([]os.FileInfo, string, error) {
+	if limit < 1 || limit > 1000 {
+		return nil, "", ErrNotValid
+	}
+	location, err := NewDBLocation(path)
+	if err != nil {
+		return nil, "", err
+	}
+	defer this.db.Close()
+	if location.db == "" || location.table == "" {
+		return this.lsCatalogPage(location, cursor, limit)
+	}
+	return this.lsRowsPage(location, cursor, limit)
+}
+
+func (this Mysql) lsCatalogPage(location DBLocation, cursor string, limit int) ([]os.FileInfo, string, error) {
+	var rows *sql.Rows
+	var err error
+	if location.db == "" {
+		rows, err = this.db.Query(`
+			SELECT s.schema_name, t.create_time, t.update_time
+			FROM information_schema.SCHEMATA AS s
+			LEFT JOIN (
+				SELECT table_schema, MAX(update_time) AS update_time, MAX(create_time) AS create_time
+				FROM information_schema.tables GROUP BY table_schema
+			) AS t ON s.schema_name = t.table_schema
+			WHERE s.schema_name > ?
+			ORDER BY s.schema_name
+			LIMIT ?`, cursor, limit+1)
+	} else {
+		rows, err = this.db.Query(`
+			SELECT table_name, create_time, update_time
+			FROM information_schema.tables
+			WHERE table_schema = ? AND table_name > ?
+			ORDER BY table_name
+			LIMIT ?`, location.db, cursor, limit+1)
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+	files := make([]os.FileInfo, 0, limit+1)
+	for rows.Next() {
+		var name string
+		var createRaw, updateRaw sql.RawBytes
+		if err := rows.Scan(&name, &createRaw, &updateRaw); err != nil {
+			return nil, "", err
+		}
+		files = append(files, File{
+			FName: name,
+			FType: "directory",
+			FTime: mysqlCatalogTimestamp(string(createRaw), string(updateRaw)),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	if len(files) <= limit {
+		return files, "", nil
+	}
+	files = files[:limit]
+	return files, files[len(files)-1].Name(), nil
+}
+
+func mysqlCatalogTimestamp(create string, update string) int64 {
+	value := update
+	if value == "" {
+		value = create
+	}
+	if value == "" {
+		return 0
+	}
+	t, err := time.Parse("2006-01-02 15:04:05", value)
+	if err != nil {
+		return 0
+	}
+	return t.Unix()
+}
+
+func (this Mysql) lsRowsPage(location DBLocation, cursor string, limit int) ([]os.FileInfo, string, error) {
+	sqlFields, err := FindQuerySelection(this.db, location)
+	if err != nil {
+		return nil, "", err
+	}
+	extractName := func(s []QuerySelection) []string {
+		out := make([]string, 0, len(s))
+		for i := range s {
+			out = append(out, s[i].Name)
+		}
+		return out
+	}
+	extractNamePlus := func(s []QuerySelection) []string {
+		out := make([]string, 0, len(s))
+		for i := range s {
+			out = append(out, "IFNULL("+s[i].Name+", '')")
+		}
+		return out
+	}
+	keyNames := extractName(sqlFields.Select)
+	filenameSQL := strings.Join(extractNamePlus(sqlFields.Select), ", ' - ', ")
+	if len(sqlFields.Esthetics) != 0 {
+		filenameSQL += ", ' - ', " + strings.Join(extractNamePlus(sqlFields.Esthetics), ", ' ', ")
+	}
+	dateSQL := ""
+	if sqlFields.Date.Name != "" {
+		dateSQL = ", " + sqlFields.Date.Name + " as date "
+	}
+	query := fmt.Sprintf("SELECT CONCAT(%s) as filename %sFROM %s.%s", filenameSQL, dateSQL, location.db, location.table)
+	args := []any{}
+	if cursor != "" {
+		cursorParts := strings.Split(strings.TrimSuffix(cursor, ".form"), " - ")
+		if len(cursorParts) < len(keyNames) {
+			return nil, "", ErrNotValid
+		}
+		placeholders := make([]string, len(keyNames))
+		for i := range keyNames {
+			placeholders[i] = "?"
+			args = append(args, cursorParts[i])
+		}
+		query += " WHERE (" + strings.Join(keyNames, ", ") + ") > (" + strings.Join(placeholders, ", ") + ")"
+	}
+	query += " ORDER BY " + strings.Join(keyNames, ", ") + " ASC LIMIT ?"
+	args = append(args, limit+1)
+	rows, err := this.db.Query(query, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+	files := make([]os.FileInfo, 0, limit+1)
+	for rows.Next() {
+		var nameRaw sql.RawBytes
+		var date sql.RawBytes
+		if sqlFields.Date.Name == "" {
+			if err := rows.Scan(&nameRaw); err != nil {
+				return nil, "", err
+			}
+		} else if err := rows.Scan(&nameRaw, &date); err != nil {
+			return nil, "", err
+		}
+		files = append(files, File{
+			FName: string(nameRaw) + ".form",
+			FType: "file",
+			FSize: -1,
+			FTime: func() int64 {
+				t, parseErr := time.Parse("2006-01-02", string(date))
+				if parseErr != nil {
+					return 0
+				}
+				return t.Unix()
+			}(),
+		})
+	}
+	if len(files) <= limit {
+		return files, "", rows.Err()
+	}
+	files = files[:limit]
+	parts := strings.Split(strings.TrimSuffix(files[len(files)-1].Name(), ".form"), " - ")
+	if len(parts) > len(keyNames) {
+		parts = parts[:len(keyNames)]
+	}
+	return files, strings.Join(parts, " - "), rows.Err()
+}
+
+func (this Mysql) lsAll(path string) ([]os.FileInfo, error) {
 	defer this.db.Close()
 	location, err := NewDBLocation(path)
 	if err != nil {
@@ -132,7 +302,7 @@ func (this Mysql) Ls(path string) ([]os.FileInfo, error) {
 		}
 		return files, nil
 	} else if location.table == "" { // second level folder = a list of all the tables available in a database
-		rows, err := this.db.Query("SELECT table_name, create_time, update_time FROM information_schema.tables WHERE table_schema = ?", location.db)
+		rows, err := this.db.Query("SELECT table_name, create_time, update_time FROM information_schema.tables WHERE table_schema = ? ORDER BY table_name", location.db)
 		if err != nil {
 			return nil, err
 		}
@@ -195,7 +365,7 @@ func (this Mysql) Ls(path string) ([]os.FileInfo, error) {
 		}
 
 		rows, err := this.db.Query(fmt.Sprintf(
-			"SELECT CONCAT(%s) as filename %sFROM %s.%s %s LIMIT 500000",
+			"SELECT CONCAT(%s) as filename %sFROM %s.%s %s LIMIT 1000",
 			func() string {
 				q := strings.Join(extractNamePlus(sqlFields.Select), ", ' - ', ")
 				if len(sqlFields.Esthetics) != 0 {

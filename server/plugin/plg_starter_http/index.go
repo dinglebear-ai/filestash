@@ -18,17 +18,16 @@ func init() {
 func Start(ctx context.Context, r *mux.Router) {
 	Log.Info("[http] starting ...")
 	port := Config.Get("general.port").Int()
-	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: r,
-	}
+	srv := NewHTTPServer(fmt.Sprintf(":%d", port), r)
 	go func() {
 		ensureAppHasBooted(
 			fmt.Sprintf("http://127.0.0.1:%d%s", port, WithBase("/about")),
 			fmt.Sprintf("[http] listening on :%d", port),
 		)
 		<-ctx.Done()
-		srv.Shutdown(context.Background())
+		if err := ShutdownHTTPServer(srv); err != nil {
+			Log.Warning("[http] graceful shutdown failed: %v", err)
+		}
 	}()
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		Log.Error("error: %v", err)

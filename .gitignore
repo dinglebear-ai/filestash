@@ -2,12 +2,10 @@ node_modules/
 .sass-cache
 dist/
 *_generated.go
-test/
 *.a
 *.o
 *.bin
 .DS_Store
-package-lock.json
 \#*\#
 .\#*
 *.log
@@ -16,16 +14,22 @@ package-lock.json
 *.swo
 .tern-port
 .tern-project.js
-*_test.go
 cover.*
 www
 
+# Generated frontend output; its staged embedded form under public/ is tracked.
+web/.next/
+web/out/
+web/playwright-report/
+web/test-results/
 
-# frontend
-public/**/*.test.js
-public/**/__snapshots__
-public/jest.setup.js
-public/package.json
-public/README.org
+# Local coverage output, never test source or snapshots.
+coverage/
+*.coverprofile
 
 filestash-enterprise
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+.beads/*.db
+.beads-credential-key

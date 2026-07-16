@@ -1,7 +1,7 @@
-# Filestash → Next.js + Aurora Frontend Rewrite — Design
+# Filestash Next.js + Aurora Frontend Rewrite - Historical ADR
 
 **Date:** 2026-06-22 (rescoped 2026-06-22)
-**Status:** Approved (via /goal directive) — implementation in progress
+**Status:** Historical decision record; implementation status is tracked by tests and current source
 **Branch:** `feat/nextjs-aurora-frontend`
 
 ## Goal
@@ -134,44 +134,16 @@ as-is. The only Go edit is making the existing server serve the Next export:
 - **Out of scope:** frontend plugin extensibility, the 7 dropped add-ons, new backend
   storage drivers.
 
-## Implementation phases
+## Historical implementation plan
 
-1. **Foundation:** scaffold `web/` Next app (TS, App Router, static export), Tailwind v4 +
-   Aurora tokens, base theme/layout, dev proxy. ✅ done
-2. **Core infra:** typed API client, `/api/config` boot, TanStack Query, error/loading
-   primitives. ✅ done (session/auth context next)
-3. **Serving integration:** `assetPrefix: "/assets"`, single SPA shell, build→`public/`
-   pipeline, minimal Go serving tweak; verify the export is served by the Go binary.
-4. **Auth + connect:** login (incl. OAuth/multi-step), connect page from `/api/backend` —
-   faithful to current flow.
-5. **File browser:** `/files/*` list/grid, navigation, ops, upload, search, sidebar.
-6. **Viewers:** all 14, lazy-loaded.
-7. **Share:** shared-link page + management.
-8. **Admin backoffice:** config, workflows, auth middleware, audit, logs.
-9. **Cutover:** embed export into `public/`, delete legacy frontend, verify Go build, E2E. ✅ done
+The original plan was foundation, API/config integration, static serving, auth and
+connect, file browser, viewers, shares, admin, then cutover. Checkmarks and a
+handwritten "final" status were removed because they drifted from runtime behavior
+and did not constitute verification.
 
-## Implementation status (final)
-
-**Done + verified against the real binary (Docker build):**
-- All screens: connect/login (dynamic backend forms), file browser (ls/nav/ops/
-  upload/search), all 14 viewers incl. CodeMirror editor w/ save + table/3d/ebook/
-  map/form, logout, admin (first-run setup + Settings/Logs/Audit), shared-link proof.
-- Cutover: static export embedded via `//go:embed all:public`, served by the
-  existing Go server with one SPA-fallback tweak. Legacy frontend pruned (15M→1.3M),
-  `bundle.js` route removed.
-- Server-side fixes found via binary testing: `all:public` embed, `BUILD_REF` (.git
-  in build ctx), trailing-slash → SPA fallback, `X-Requested-With` for SecureOrigin,
-  config-save flattening.
-- Remote SFTP host connections (tootie/squirts/steamy-wsl/shart) addable via
-  config.connections; container reaches the tailnet via host networking.
-
-**Deferred / known limitations:**
-- **base-href / sub-path deploy:** runtime sub-path isn't feasible for a static
-  export (assets are absolutely referenced). Root deploy works; build-time
-  `basePath` is the future path.
-- **Admin fidelity:** Settings/Logs/Audit/setup done; the legacy activity graphs and
-  dedicated storage-management UI are not ported (niche operator views).
-- **Share proof flow:** built + renders; not yet exercised against a real created share.
-- **Office/WOPI viewer:** download fallback (needs server-side OnlyOffice/WOPI).
-- **Host connections** live in runtime config (not committed); SSH key entered at
-  connect time (never stored by the build).
+Current acceptance is defined by source-controlled Go, component, API-contract,
+and browser tests plus `make ci`. In particular, runtime configuration, subpath
+routing, typed admin saves, sequential share/viewer navigation, plugin hosting,
+and staged embedded assets must pass before a revision is releaseable. Operational
+migration constraints live in `docs/frontend-migration.md`; this ADR records only
+the decisions and context that led to the rewrite.

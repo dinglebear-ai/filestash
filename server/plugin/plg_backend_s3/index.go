@@ -379,6 +379,7 @@ func (this S3Backend) Rm(path string) error {
 	jobChan := make(chan S3Path, this.threadSize)
 	errChan := make(chan error, this.threadSize)
 	ctx, cancel := context.WithCancel(this.app.Context)
+	defer cancel()
 	var wg sync.WaitGroup
 	for i := 1; i <= this.threadSize; i++ {
 		wg.Add(1)
@@ -476,6 +477,7 @@ func (this S3Backend) Mv(from string, to string) error {
 	jobChan := make(chan []S3Path, this.threadSize)
 	errChan := make(chan error, this.threadSize)
 	ctx, cancel := context.WithCancel(this.app.Context)
+	defer cancel()
 	var wg sync.WaitGroup
 	for i := 1; i <= this.threadSize; i++ {
 		wg.Add(1)

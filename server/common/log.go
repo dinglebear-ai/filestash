@@ -5,16 +5,24 @@ import (
 	slog "log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
 var (
 	Log     = &log{enable: true}
 	logfile *os.File
+	logpath string
 )
 
+const maxLogFileSize int64 = 50 << 20
+
 func InitLogger() (err error) {
-	logfile, err = os.OpenFile(GetAbsolutePath(LOG_PATH, "access.log"), os.O_APPEND|os.O_WRONLY|os.O_CREATE, os.ModePerm)
+	logpath = GetAbsolutePath(LOG_PATH, "access.log")
+	if info, statErr := os.Stat(logpath); statErr == nil && info.Size() >= maxLogFileSize {
+		rotateLogFiles(logpath)
+	}
+	logfile, err = os.OpenFile(logpath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0660)
 	if err != nil {
 		slog.Printf("ERROR log file: %+v", err)
 		return err
@@ -24,6 +32,7 @@ func InitLogger() (err error) {
 }
 
 type log struct {
+	mu     sync.Mutex
 	enable bool
 	debug  bool
 	info   bool
@@ -36,7 +45,7 @@ func (l *log) Info(format string, v ...interface{}) {
 		message := fmt.Sprintf("%s SYST INFO ", l.now())
 		message = fmt.Sprintf(message+format+"\n", v...)
 
-		logfile.WriteString(message)
+		l.write(message)
 		fmt.Print(strings.Replace(message, "%", "%%", -1))
 	}
 }
@@ -46,7 +55,7 @@ func (l *log) Warning(format string, v ...interface{}) {
 		message := fmt.Sprintf("%s SYST WARN ", l.now())
 		message = fmt.Sprintf(message+format+"\n", v...)
 
-		logfile.WriteString(message)
+		l.write(message)
 		fmt.Print(strings.Replace(message, "%", "%%", -1))
 	}
 }
@@ -56,7 +65,7 @@ func (l *log) Error(format string, v ...interface{}) {
 		message := fmt.Sprintf("%s SYST ERROR ", l.now())
 		message = fmt.Sprintf(message+format+"\n", v...)
 
-		logfile.WriteString(message)
+		l.write(message)
 		fmt.Print(strings.Replace(message, "%", "%%", -1))
 	}
 }
@@ -66,7 +75,7 @@ func (l *log) Debug(format string, v ...interface{}) {
 		message := fmt.Sprintf("%s SYST DEBUG ", l.now())
 		message = fmt.Sprintf(message+format+"\n", v...)
 
-		logfile.WriteString(message)
+		l.write(message)
 		fmt.Print(strings.Replace(message, "%", "%%", -1))
 	}
 }
@@ -75,7 +84,7 @@ func (l *log) Stdout(format string, v ...interface{}) {
 	message := fmt.Sprintf("%s ", l.now())
 	message = fmt.Sprintf(message+format+"\n", v...)
 
-	logfile.WriteString(message)
+	l.write(message)
 	fmt.Print(strings.Replace(message, "%", "%%", -1))
 }
 
@@ -84,7 +93,38 @@ func (l *log) now() string {
 }
 
 func (l *log) Close() {
-	logfile.Close()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if logfile != nil {
+		_ = logfile.Close()
+		logfile = nil
+	}
+}
+
+func (l *log) write(message string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if logfile == nil {
+		return
+	}
+	if info, err := logfile.Stat(); err == nil && info.Size()+int64(len(message)) >= maxLogFileSize {
+		_ = logfile.Close()
+		rotateLogFiles(logpath)
+		var openErr error
+		logfile, openErr = os.OpenFile(logpath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0660)
+		if openErr != nil {
+			logfile = nil
+			return
+		}
+	}
+	_, _ = logfile.WriteString(message)
+}
+
+func rotateLogFiles(path string) {
+	_ = os.Remove(path + ".3")
+	_ = os.Rename(path+".2", path+".3")
+	_ = os.Rename(path+".1", path+".2")
+	_ = os.Rename(path, path+".1")
 }
 
 func (l *log) SetVisibility(str string) {

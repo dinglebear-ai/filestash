@@ -11,7 +11,12 @@ import { backendApi, sessionApi } from "@/lib/api/endpoints";
 import { useConfig } from "@/lib/config/config-context";
 import type { Connection, FormFields, Session } from "@/lib/api/types";
 import { Button } from "@/registry/aurora/ui/button";
+import { ButtonGroup } from "@/registry/aurora/ui/button-group";
+import { Callout } from "@/registry/aurora/ui/callout";
+import { Card, CardContent, CardHeader, CardTitle } from "@/registry/aurora/ui/card";
+import { Spinner } from "@/registry/aurora/ui/spinner";
 import { DynamicForm } from "@/components/dynamic-form";
+import { trimBase, withBase } from "@/lib/paths";
 
 /** Merge a connection's prefilled overrides onto a backend's field definitions. */
 function applyOverrides(fields: FormFields, conn: Connection): FormFields {
@@ -21,6 +26,21 @@ function applyOverrides(fields: FormFields, conn: Connection): FormFields {
     merged[name] = override !== undefined ? { ...el, value: override } : el;
   }
   return merged;
+}
+
+/** Resolve a server-provided local continuation without allowing open redirects. */
+function authenticatedDestination(next?: string): string {
+  const fallback = withBase("/files/");
+  if (!next || !next.startsWith("/") || next.startsWith("//") || /[\r\n]/.test(next)) return fallback;
+
+  try {
+    const localOrigin = "https://filestash.invalid";
+    const url = new URL(next, localOrigin);
+    if (url.origin !== localOrigin) return fallback;
+    return withBase(`${trimBase(url.pathname)}${url.search}${url.hash}`);
+  } catch {
+    return fallback;
+  }
 }
 
 export function ConnectScreen() {
@@ -43,19 +63,27 @@ export function ConnectScreen() {
   const selected = connections[selectedIdx];
 
   useEffect(() => {
-    if (session.data?.is_authenticated) router.replace("/files/");
+    if (session.data?.is_authenticated) router.replace(authenticatedDestination(session.data.next));
   }, [session.data, router]);
 
   const login = useMutation({
     mutationFn: (values: Record<string, string>) => sessionApi.login(values),
     onSuccess: (data: Session) => {
       queryClient.setQueryData(["session"], data);
-      router.replace("/files/");
+      router.replace(authenticatedDestination(data.next));
     },
   });
 
-  if (session.isLoading || backends.isLoading) return <Centered>Loading…</Centered>;
-  if (backends.isError || !backends.data) return <Centered>Couldn&apos;t load storage backends.</Centered>;
+  if (session.isLoading || backends.isLoading) return <Centered label="Loading storage backends" />;
+  if (backends.isError || !backends.data) {
+    return (
+      <Centered>
+        <Callout title="Could not load storage backends" variant="error">
+          The backend catalog did not return a usable connection list.
+        </Callout>
+      </Centered>
+    );
+  }
 
   const baseFields = selected ? backends.data[selected.type] : undefined;
   const fields = baseFields && selected ? applyOverrides(baseFields, selected) : undefined;
@@ -68,7 +96,7 @@ export function ConnectScreen() {
       </header>
 
       {connections.length > 1 ? (
-        <div className="flex flex-wrap justify-center gap-2">
+        <ButtonGroup className="mx-auto flex-wrap">
           {connections.map((c, i) => (
             <Button
               key={`${c.label}-${i}`}
@@ -79,18 +107,11 @@ export function ConnectScreen() {
               {c.label}
             </Button>
           ))}
-        </div>
+        </ButtonGroup>
       ) : null}
 
-      <div
-        className="rounded-[var(--aurora-radius-3)] p-6"
-        style={{
-          background: "var(--aurora-panel-strong)",
-          borderColor: "var(--aurora-border-strong)",
-          borderWidth: 1,
-          boxShadow: "var(--aurora-shadow-strong), inset 0 1px 0 rgba(255,255,255,0.05)",
-        }}
-      >
+      <Card elevated>
+        <CardContent className="p-6">
         {fields ? (
           <DynamicForm
             key={selectedIdx}
@@ -100,19 +121,27 @@ export function ConnectScreen() {
             onSubmit={(values) => login.mutate(values)}
           />
         ) : (
-          <p className="aurora-text-body text-[var(--aurora-text-muted)]">
+          <Callout title="No form available" variant="warn">
             No form available for this backend.
-          </p>
+          </Callout>
         )}
-      </div>
+        </CardContent>
+      </Card>
     </main>
   );
 }
 
-function Centered({ children }: { children: React.ReactNode }) {
+function Centered({ children, label }: { children?: React.ReactNode; label?: string }) {
   return (
     <main className="flex min-h-dvh items-center justify-center px-6">
-      <p className="aurora-text-body text-[var(--aurora-text-muted)]">{children}</p>
+      {children ?? (
+        <Card>
+          <CardHeader className="items-center text-center">
+            <Spinner />
+            <CardTitle as="h1">{label}</CardTitle>
+          </CardHeader>
+        </Card>
+      )}
     </main>
   );
 }

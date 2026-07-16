@@ -6,8 +6,10 @@
 import { useMemo, useState } from "react";
 import { Field } from "@/registry/aurora/ui/field";
 import { Input } from "@/registry/aurora/ui/input";
+import { NativeSelect } from "@/registry/aurora/ui/native-select";
 import { Switch } from "@/registry/aurora/ui/switch";
 import { Button } from "@/registry/aurora/ui/button";
+import { Callout } from "@/registry/aurora/ui/callout";
 import type { FormElement, FormFields } from "@/lib/api/types";
 
 function initialValues(elements: FormElement[]): Record<string, string> {
@@ -65,12 +67,14 @@ export function DynamicForm({
         if (!isVisible(el)) return null;
         const label = el.placeholder || el.label;
         const key = el.id || el.label || String(i);
+        const inputId = `connection-${String(key).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 
         if (el.type === "enable") {
           return (
             <div key={key} className="flex items-center justify-between gap-3">
               <span className="aurora-text-label">{label}</span>
               <Switch
+                aria-label={String(label)}
                 checked={Boolean(toggles[el.label])}
                 onCheckedChange={(on: boolean) => setToggles((t) => ({ ...t, [el.label]: on }))}
               />
@@ -83,6 +87,7 @@ export function DynamicForm({
             <div key={key} className="flex items-center justify-between gap-3">
               <span className="aurora-text-label">{label}</span>
               <Switch
+                aria-label={String(label)}
                 checked={values[el.label] === "true"}
                 onCheckedChange={(on: boolean) => set(el.label, on ? "true" : "false")}
               />
@@ -92,10 +97,9 @@ export function DynamicForm({
 
         if (el.type === "select") {
           return (
-            <Field key={key} label={label} required={el.required}>
-              <select
-                className="h-9 rounded-[var(--aurora-radius-1)] border bg-[var(--aurora-control-surface)] px-3 aurora-text-control"
-                style={{ borderColor: "var(--aurora-border-strong)" }}
+            <Field key={key} label={label} htmlFor={inputId} required={el.required}>
+              <NativeSelect
+                id={inputId}
                 value={values[el.label] ?? ""}
                 onChange={(e) => set(el.label, e.target.value)}
               >
@@ -104,7 +108,7 @@ export function DynamicForm({
                     {opt}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </Field>
           );
         }
@@ -119,8 +123,9 @@ export function DynamicForm({
                 : "text";
 
         return (
-          <Field key={key} label={label} description={el.description} required={el.required}>
+          <Field key={key} label={label} htmlFor={inputId} description={el.description} required={el.required}>
             <Input
+              id={inputId}
               type={inputType}
               value={values[el.label] ?? ""}
               placeholder={el.placeholder}
@@ -141,10 +146,12 @@ export function DynamicForm({
       })}
 
       {error ? (
-        <p className="aurora-text-body-sm text-[var(--aurora-error)]">{error}</p>
+        <Callout title="Could not connect" variant="error">
+          {error}
+        </Callout>
       ) : null}
 
-      <Button type="submit" variant="aurora" disabled={submitting}>
+      <Button type="submit" variant="aurora" disabled={submitting} loading={submitting}>
         {submitting ? "Connecting…" : "Connect"}
       </Button>
     </form>

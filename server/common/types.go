@@ -23,6 +23,13 @@ type IBackend interface {
 	LoginForm() Form
 }
 
+// IPagedBackend lets high-volume backends apply an opaque cursor and limit
+// before rows are materialized. Other backends use the controller's bounded
+// compatibility path.
+type IPagedBackend interface {
+	LsPage(path string, cursor string, limit int) ([]os.FileInfo, string, error)
+}
+
 type IAuthentication interface {
 	Setup() Form
 	EntryPoint(idpParams map[string]string, req *http.Request, res http.ResponseWriter) error
