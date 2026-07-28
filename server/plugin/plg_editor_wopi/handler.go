@@ -12,9 +12,8 @@ import (
 	"text/template"
 
 	. "github.com/mickael-kerjean/filestash/server/common"
-	"github.com/mickael-kerjean/filestash/server/ctrl"
 	"github.com/mickael-kerjean/filestash/server/middleware"
-	"github.com/mickael-kerjean/filestash/server/model"
+	"github.com/mickael-kerjean/filestash/server/pkg/permissions"
 
 	"github.com/gorilla/mux"
 )
@@ -52,7 +51,7 @@ func WOPIHandler_CheckFileInfo(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewEncoder(w).Encode(map[string]any{
 			"BaseFileName":     filepath.Base(fullpath),
 			"UserFriendlyName": "Unknown",
-			"UserCanWrite":     model.CanEdit(ctx),
+			"UserCanWrite":     permissions.CanEdit(ctx),
 			"IsAdminUser":      false,
 			"IsAnonymousUser":  true,
 		}); err != nil {
@@ -89,7 +88,7 @@ func WOPIExecute(w http.ResponseWriter, r *http.Request) func(func(*App, string,
 	return func(fn func(*App, string, http.ResponseWriter)) {
 		middleware.NewMiddlewareChain(
 			func(ctx *App, w http.ResponseWriter, r *http.Request) {
-				fullpath, err := ctrl.PathBuilder(ctx, r.URL.Query().Get("path"))
+				fullpath, err := PathBuilder(ctx, r.URL.Query().Get("path"))
 				if err != nil {
 					SendErrorResult(w, err)
 					return
@@ -107,7 +106,7 @@ func wopiToCommonAPI(fn HandlerFunc) HandlerFunc {
 		if len(tmp) < 2 {
 			return "", ""
 		}
-		bpath, err := base64.StdEncoding.DecodeString(tmp[1])
+		bpath, err := base64.URLEncoding.DecodeString(tmp[1])
 		if err != nil {
 			return "", ""
 		} else if len(tmp) > 2 {
@@ -278,7 +277,7 @@ func wopiDiscovery(ctx *App, fullpath string) (string, error) {
 		"id":   GenerateID(ctx.Session),
 		"path": fullpath,
 	})
-	wopiSRC += "::" + base64.StdEncoding.EncodeToString([]byte(fullpath))
+	wopiSRC += "::" + base64.URLEncoding.EncodeToString([]byte(fullpath))
 	if ctx.Share.Id != "" {
 		wopiSRC += "::" + ctx.Share.Id
 	}

@@ -4,8 +4,8 @@ go 1.26.5
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.6.4
-	github.com/asticode/go-astikit v0.59.0
 	github.com/aws/aws-sdk-go v1.55.8
+	github.com/balena-os/librsync-go v0.9.0
 	github.com/bluekeyes/go-gitdiff v0.8.1
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/creack/pty v1.1.24
@@ -22,7 +22,6 @@ require (
 	github.com/hirochachacha/go-smb2 v1.1.0
 	github.com/lib/pq v1.12.3
 	github.com/mattn/go-sqlite3 v1.14.42
-	github.com/mickael-kerjean/go-astiav v0.0.0-20260528033519-fa661b1d66b5
 	github.com/mickael-kerjean/goftp v0.0.0-20260421114701-956d21f038b7
 	github.com/mickael-kerjean/net v0.0.0-20191120063050-2457c043ba06
 	github.com/mitchellh/hashstructure v1.1.0
@@ -61,6 +60,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.4.1 // indirect
 	github.com/aybabtme/rgbterm v0.0.0-20170906152045-cc83f3b3ce59 // indirect
+	github.com/balena-os/circbuf v0.1.3 // indirect
 	github.com/boombuler/barcode v1.1.0 // indirect
 	github.com/calebcase/tmpfile v1.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -121,3 +121,5 @@ require (
 	storj.io/infectious v0.0.2 // indirect
 	storj.io/picobuf v0.0.4 // indirect
 )
+
+replace github.com/pkg/sftp => github.com/mickael-kerjean/pkg-sftp v0.0.0-20260723110711-dbfdb51a990e

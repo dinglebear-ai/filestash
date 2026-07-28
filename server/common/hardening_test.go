@@ -187,6 +187,9 @@ func TestHTTPServerHasResourceBounds(t *testing.T) {
 	}
 }
 
+// The FrontendOverrides half of this test was dropped when upstream retired
+// that hook entirely (ad1af48f), removing both the registrar and its only
+// caller. The driver-registry assertion below still covers a live API.
 func TestDriverAndPluginGettersReturnSnapshots(t *testing.T) {
 	driver := NewDriver()
 	driver.Register("first", Nothing{})
@@ -194,14 +197,6 @@ func TestDriverAndPluginGettersReturnSnapshots(t *testing.T) {
 	delete(snapshot, "first")
 	if _, ok := driver.Drivers()["first"]; !ok {
 		t.Fatal("driver registry exposed its backing map")
-	}
-
-	Hooks.Register.FrontendOverrides("/snapshot-test.js")
-	overrides := Hooks.Get.FrontendOverrides()
-	overrides[len(overrides)-1] = "/mutated.js"
-	got := Hooks.Get.FrontendOverrides()
-	if got[len(got)-1] != "/snapshot-test.js" {
-		t.Fatal("plugin registry exposed its backing slice")
 	}
 }
 

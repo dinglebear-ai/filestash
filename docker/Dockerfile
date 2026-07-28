@@ -52,7 +52,7 @@ ARG BUILD_REF
 LABEL org.opencontainers.image.revision="${BUILD_REF}"
 WORKDIR /app
 RUN apt-get update >/dev/null && \
-    apt-get install -y --no-install-recommends ca-certificates curl ffmpeg libbrotli1 libvips >/dev/null && \
+    apt-get install -y --no-install-recommends ca-certificates curl ffmpeg libbrotli1 libvips poppler-utils >/dev/null && \
     useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin filestash && \
     install -d -o filestash -g filestash -m 0700 \
       /app/data/state /app/data/state/config /app/data/state/log /app/data/cache && \

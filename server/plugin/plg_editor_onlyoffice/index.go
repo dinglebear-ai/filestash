@@ -15,9 +15,8 @@ import (
 	"time"
 
 	. "github.com/mickael-kerjean/filestash/server/common"
-	"github.com/mickael-kerjean/filestash/server/ctrl"
 	"github.com/mickael-kerjean/filestash/server/middleware"
-	"github.com/mickael-kerjean/filestash/server/model"
+	"github.com/mickael-kerjean/filestash/server/pkg/permissions"
 
 	"github.com/gorilla/mux"
 	"github.com/patrickmn/go-cache"
@@ -257,7 +256,7 @@ func IframeContentHandler(ctx *App, res http.ResponseWriter, req *http.Request) 
 		Log.Warning("plg_editor_onlyoffice::handler request_disabled")
 		return
 	}
-	if model.CanRead(ctx) == false {
+	if permissions.CanRead(ctx) == false {
 		SendErrorResult(res, ErrPermissionDenied)
 		return
 	} else if server_url() == "" {
@@ -281,7 +280,7 @@ func IframeContentHandler(ctx *App, res http.ResponseWriter, req *http.Request) 
 		localip                 string
 	)
 	query := req.URL.Query()
-	path, err := ctrl.PathBuilder(ctx, query.Get("path"))
+	path, err := PathBuilder(ctx, query.Get("path"))
 	if err != nil {
 		SendErrorResult(res, err)
 		return
@@ -298,7 +297,7 @@ func IframeContentHandler(ctx *App, res http.ResponseWriter, req *http.Request) 
 
 	filename = filepath.Base(path)
 	oodsMode = func() string {
-		if model.CanEdit(ctx) == false {
+		if permissions.CanEdit(ctx) == false {
 			return "view"
 		}
 		return "edit"

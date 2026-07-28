@@ -2,7 +2,6 @@ package server
 
 import (
 	"crypto/subtle"
-	"fmt"
 	"net"
 	"net/http"
 	"net/http/pprof"
@@ -179,13 +178,6 @@ func DebugRoutes(r *mux.Router) {
 }
 
 func PluginRoutes(r *mux.Router) {
-	// frontoffice overrides: it is the mean by which plugin can interact with the frontoffice
-	for _, obj := range Hooks.Get.FrontendOverrides() {
-		r.HandleFunc(obj, func(res http.ResponseWriter, req *http.Request) {
-			res.Header().Set("Content-Type", GetMimeType(req.URL.String()))
-			res.Write([]byte(fmt.Sprintf("/* Default '%s' */", obj)))
-		})
-	}
 	// map file types to application handler
 	r.HandleFunc(WithBase("/overrides/xdg-open.js"), func(res http.ResponseWriter, req *http.Request) {
 		res.Header().Set("Content-Type", GetMimeType(req.URL.String()))
