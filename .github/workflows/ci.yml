@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -12,71 +13,60 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  GOFLAGS: -mod=readonly
-  GOTOOLCHAIN: local
-
 jobs:
+  contract:
+    uses: dinglebear-ai/workflows/.github/workflows/fleet-contract.yml@eb5f36cf517ffc949aca1c81e2ccbc71b5a85267
+    with:
+      profile: go
+      implementation-ref: eb5f36cf517ffc949aca1c81e2ccbc71b5a85267
+
   frontend:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-      - name: Assert submitted revision
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 24.18.0
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - run: npm ci --prefix web --no-audit --no-fund
-      - run: npm run lint --prefix web
-      - run: npm run typecheck --if-present --prefix web
-      - run: npm run test:coverage --prefix web
-      - run: npm audit --prefix web --omit=dev --audit-level=high
-      - run: npm run build --prefix web
-      - run: node web/scripts/build-embed.mjs --apply --skip-build
-      - run: ./scripts/check-web-assets.sh
-      - name: Embedded assets match frontend source
-        run: git diff --exit-code -- public/
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e --prefix web
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: always()
-        with:
-          name: frontend-test-artifacts-${{ github.sha }}
-          path: |
-            web/coverage/
-            web/playwright-report/
-            web/test-results/
-          if-no-files-found: warn
-          retention-days: 14
+    uses: dinglebear-ai/workflows/.github/workflows/fast-node.yml@eb5f36cf517ffc949aca1c81e2ccbc71b5a85267
+    with:
+      node-version: "24.18.0"
+      working-directory: web
+      cache-dependency-path: web/package-lock.json
+      install-command: npm ci --no-audit --no-fund
+      audit-command: npm audit --omit=dev --audit-level=high
+      lint-command: npm run lint
+      typecheck-command: npm run typecheck
+      test-command: npm run test:coverage
+      build-command: npm run build
+      contract-command: >-
+        node scripts/build-embed.mjs --apply --skip-build &&
+        ../scripts/check-web-assets.sh &&
+        git diff --exit-code -- ../public/
+      timeout-minutes: 25
 
   backend:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    uses: dinglebear-ai/workflows/.github/workflows/fast-go.yml@eb5f36cf517ffc949aca1c81e2ccbc71b5a85267
+    with:
+      go-version: "1.26.5"
+      generate-command: go generate -x ./server/...
+      vet-command: go vet ./server/... ./cmd/...
+      test-command: >-
+        go test -count=1 ./server/... ./cmd/... &&
+        CGO_ENABLED=1 go test -race -count=1 ./server/... ./cmd/...
+      govulncheck-version: "v1.6.0"
+      timeout-minutes: 45
+
+  backend-evidence:
+    name: Backend coverage and benchmarks
+    runs-on: [self-hosted, ci-pool-go]
+    timeout-minutes: 30
+    env:
+      GOFLAGS: -mod=readonly
+      GOTOOLCHAIN: local
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - name: Assert submitted revision
-        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: 1.26.5
-          cache-dependency-path: go.sum
-      - name: Native build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libjpeg-dev libtiff-dev libpng-dev libwebp-dev libraw-dev libheif-dev \
-            libgif-dev libvips-dev libavcodec-dev libavdevice-dev libavfilter-dev \
-            libavformat-dev libswresample-dev libswscale-dev libavutil-dev
+          go-version: "1.26.5"
+          cache: true
       - run: go mod download && go mod verify
       - run: go generate -x ./server/...
-      - run: go vet ./server/... ./cmd/...
       - run: go test -count=1 -covermode=atomic -coverprofile=coverage-go.out ./server/... ./cmd/...
       - run: ./scripts/check-go-coverage.sh coverage-go.out
       - name: Critical-package coverage ratchet
@@ -86,11 +76,7 @@ jobs:
             ./server/pkg/workflow/trigger ./server/plugin/plg_handler_mcp \
             ./server/plugin/plg_handler_console ./server/plugin/plg_backend_dav
           GO_COVERAGE_MIN=16.6 ./scripts/check-go-coverage.sh coverage-go-critical.out
-      - run: CGO_ENABLED=1 go test -race -count=1 ./server/... ./cmd/...
       - run: go test -run '^$' -bench . -benchmem ./server/... ./cmd/... | tee benchmarks.txt
-      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./server/... ./cmd/...
-      - name: Module files remain readonly
-        run: git diff --exit-code -- go.mod go.sum
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: benchmarks-${{ github.sha }}
@@ -101,75 +87,14 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  sbom:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
+  gate:
+    name: CI
+    if: always()
+    needs: [contract, frontend, backend, backend-evidence]
+    runs-on: [self-hosted, ci-pool-ops]
+    timeout-minutes: 2
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
-        with:
-          go-version: 1.26.5
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: 24.18.0
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - run: make sbom
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: cyclonedx-sbom-${{ github.sha }}
-          path: dist/*.cdx.json
-          if-no-files-found: error
-          retention-days: 30
-
-  image:
-    needs: [frontend, backend]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          file: docker/Dockerfile
-          push: false
-          load: true
-          build-args: BUILD_REF=${{ github.sha }}
-          tags: filestash:${{ github.sha }}
-          # Docker's load exporter cannot import the manifest list produced by
-          # attestations. The dedicated sbom job publishes validated CycloneDX.
-          provenance: false
-          sbom: false
-      - name: Smoke-test image startup
-        shell: bash
-        run: |
-          set -euo pipefail
-          name=filestash-smoke
-          trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
-          docker run -d --name "$name" "filestash:${{ github.sha }}" >/dev/null
-          for _ in {1..45}; do
-            state=$(docker inspect --format '{{.State.Status}}' "$name")
-            health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$name")
-            if [[ "$health" == "healthy" ]]; then
-              exit 0
-            fi
-            if [[ "$state" == "exited" || "$health" == "unhealthy" ]]; then
-              docker logs "$name"
-              exit 1
-            fi
-            sleep 2
-          done
-          docker logs "$name"
-          exit 1
-      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          image-ref: filestash:${{ github.sha }}
-          format: table
-          exit-code: "1"
-          ignore-unfixed: true
-          severity: CRITICAL,HIGH
+      - name: Require every fast lane
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: test "$RESULTS" = "success success success success"
