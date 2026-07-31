@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+concurrency:
+  group: filestash-release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  web:
+    permissions:
+      contents: read
+    uses: dinglebear-ai/workflows/.github/workflows/hosted-web-release.yml@542ea7b7e5ca2d4e21f3277bfcf158584fee90ec
+    with:
+      checkout-ref: ${{ github.event.release.tag_name }}
+      node-version: "24.18.0"
+      working-directory: web
+      cache-dependency-path: web/package-lock.json
+      install-command: npm ci --no-audit --no-fund
+      coverage-command: npm run test:coverage
+      build-command: >-
+        npm run build &&
+        node scripts/build-embed.mjs --apply --skip-build &&
+        ../scripts/check-web-assets.sh
+      e2e-command: npm run test:e2e
+      artifact-name: filestash-web-${{ github.event.release.tag_name }}
+      artifact-path: public/
+      diagnostic-path: |
+        web/coverage/
+        web/playwright-report/
+        web/test-results/
+      timeout-minutes: 45
+
+  container:
+    needs: web
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    uses: dinglebear-ai/workflows/.github/workflows/hosted-container-release.yml@542ea7b7e5ca2d4e21f3277bfcf158584fee90ec
+    with:
+      checkout-ref: ${{ github.event.release.tag_name }}
+      image: ghcr.io/${{ github.repository }}
+      release-tag: ${{ github.event.release.tag_name }}
+      dockerfile: docker/Dockerfile
+      build-args: BUILD_REF=${{ github.sha }}
+      smoke-command: |
+        set -euo pipefail
+        name="filestash-release-smoke-${GITHUB_RUN_ID}"
+        trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
+        docker run -d --name "$name" "$IMAGE_REF" >/dev/null
+        for _ in {1..45}; do
+          health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$name")"
+          [[ "$health" == healthy ]] && exit 0
+          [[ "$health" == unhealthy ]] && break
+          sleep 2
+        done
+        docker logs "$name"
+        exit 1
+      cache-scope: filestash-release
+      timeout-minutes: 60
+    secrets:
+      REGISTRY_USERNAME: ${{ github.actor }}
+      REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sbom:
+    needs: web
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26.5"
+          cache: true
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: make sbom
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cyclonedx-sbom-${{ github.event.release.tag_name }}
+          path: dist/*.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: [container, sbom]
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
+    uses: dinglebear-ai/workflows/.github/workflows/github-release.yml@542ea7b7e5ca2d4e21f3277bfcf158584fee90ec
+    with:
+      release-tag: ${{ github.event.release.tag_name }}
+      artifact-pattern: cyclonedx-sbom-*
+      artifact-path: release-artifacts
