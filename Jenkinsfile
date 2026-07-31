@@ -78,7 +78,7 @@ pipeline {
                 sh '''
                     docker buildx build \
                       --file docker/Dockerfile \
-                      --platform linux/amd64,linux/arm64 \
+                      --platform linux/amd64 \
                       --build-arg BUILD_REF=${REVISION} \
                       --provenance=mode=max \
                       --sbom=true \
