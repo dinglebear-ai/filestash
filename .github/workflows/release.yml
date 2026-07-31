@@ -14,7 +14,7 @@ jobs:
   web:
     permissions:
       contents: read
-    uses: dinglebear-ai/workflows/.github/workflows/hosted-web-release.yml@eb5f36cf517ffc949aca1c81e2ccbc71b5a85267
+    uses: dinglebear-ai/workflows/.github/workflows/hosted-web-release.yml@542ea7b7e5ca2d4e21f3277bfcf158584fee90ec
     with:
       checkout-ref: ${{ github.event.release.tag_name }}
       node-version: "24.18.0"
@@ -42,7 +42,7 @@ jobs:
       packages: write
       attestations: write
       id-token: write
-    uses: dinglebear-ai/workflows/.github/workflows/hosted-container-release.yml@eb5f36cf517ffc949aca1c81e2ccbc71b5a85267
+    uses: dinglebear-ai/workflows/.github/workflows/hosted-container-release.yml@542ea7b7e5ca2d4e21f3277bfcf158584fee90ec
     with:
       checkout-ref: ${{ github.event.release.tag_name }}
       image: ghcr.io/${{ github.repository }}
@@ -102,7 +102,7 @@ jobs:
       contents: write
       attestations: write
       id-token: write
-    uses: dinglebear-ai/workflows/.github/workflows/github-release.yml@eb5f36cf517ffc949aca1c81e2ccbc71b5a85267
+    uses: dinglebear-ai/workflows/.github/workflows/github-release.yml@542ea7b7e5ca2d4e21f3277bfcf158584fee90ec
     with:
       release-tag: ${{ github.event.release.tag_name }}
       artifact-pattern: cyclonedx-sbom-*

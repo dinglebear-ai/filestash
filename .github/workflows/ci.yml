@@ -15,13 +15,13 @@ concurrency:
 
 jobs:
   contract:
-    uses: dinglebear-ai/workflows/.github/workflows/fleet-contract.yml@eb5f36cf517ffc949aca1c81e2ccbc71b5a85267
+    uses: dinglebear-ai/workflows/.github/workflows/fleet-contract.yml@542ea7b7e5ca2d4e21f3277bfcf158584fee90ec
     with:
       profile: go
-      implementation-ref: eb5f36cf517ffc949aca1c81e2ccbc71b5a85267
+      implementation-ref: 542ea7b7e5ca2d4e21f3277bfcf158584fee90ec
 
   frontend:
-    uses: dinglebear-ai/workflows/.github/workflows/fast-node.yml@eb5f36cf517ffc949aca1c81e2ccbc71b5a85267
+    uses: dinglebear-ai/workflows/.github/workflows/fast-node.yml@542ea7b7e5ca2d4e21f3277bfcf158584fee90ec
     with:
       node-version: "24.18.0"
       working-directory: web
@@ -39,7 +39,7 @@ jobs:
       timeout-minutes: 25
 
   backend:
-    uses: dinglebear-ai/workflows/.github/workflows/fast-go.yml@eb5f36cf517ffc949aca1c81e2ccbc71b5a85267
+    uses: dinglebear-ai/workflows/.github/workflows/fast-go.yml@542ea7b7e5ca2d4e21f3277bfcf158584fee90ec
     with:
       go-version: "1.26.5"
       generate-command: go generate -x ./server/...
