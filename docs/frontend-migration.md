@@ -1,3 +1,9 @@
+---
+title: Next.js Frontend Migration
+created: 2026-07-30
+updated: 2026-07-30
+---
+
 # Next.js Frontend Migration
 
 The React/Aurora frontend is a static export embedded in the Filestash Go binary.
