@@ -20,6 +20,7 @@ import { filesApi } from "@/lib/api/endpoints";
 import type { FileEntry } from "@/lib/api/types";
 import { withBase } from "@/lib/paths";
 import { Button } from "@/registry/aurora/ui/button";
+import { Badge } from "@/registry/aurora/ui/badge";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -165,17 +166,25 @@ export function FilesScreen({ pathname }: { pathname: string }) {
   };
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col gap-4 px-6 py-6">
-      <Breadcrumb>
-        <BreadcrumbList>
+    <main className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-4 px-4 py-4 sm:px-6 sm:py-6">
+      <header
+        className="grid gap-3 rounded-[var(--aurora-radius-2)] border px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+        style={{
+          background: "var(--aurora-panel-medium)",
+          borderColor: "var(--aurora-border-default)",
+          boxShadow: "var(--aurora-shadow-medium), var(--aurora-highlight-medium)",
+        }}
+      >
+        <div className="min-w-0">
+          <p className="aurora-text-eyebrow text-[var(--aurora-text-muted)]">File Navigator</p>
+          <Breadcrumb className="mt-1">
+            <BreadcrumbList>
           <BreadcrumbItem>
             {segments.length === 0 ? (
               <BreadcrumbPage>home</BreadcrumbPage>
             ) : (
               <BreadcrumbLink asChild>
-                <button type="button" onClick={() => router.push(withBase("/files/"))}>
-                  home
-                </button>
+                <Button size="unstyled" variant="plain" onClick={() => router.push(withBase("/files/"))}>Home</Button>
               </BreadcrumbLink>
             )}
           </BreadcrumbItem>
@@ -191,17 +200,21 @@ export function FilesScreen({ pathname }: { pathname: string }) {
                     <BreadcrumbPage>{seg}</BreadcrumbPage>
                   ) : (
                     <BreadcrumbLink asChild>
-                      <button type="button" onClick={() => router.push(withBase(href))}>
-                        {seg}
-                      </button>
+                      <Button size="unstyled" variant="plain" onClick={() => router.push(withBase(href))}>{seg}</Button>
                     </BreadcrumbLink>
                   )}
                 </BreadcrumbItem>
               </Fragment>
             );
           })}
-        </BreadcrumbList>
-      </Breadcrumb>
+            </BreadcrumbList>
+          </Breadcrumb>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge tone="info" shape="tag">{entries.length.toLocaleString()} {entries.length === 1 ? "Item" : "Items"}</Badge>
+          <Badge tone="neutral" shape="tag">{segments.length === 0 ? "Storage Root" : "Folder"}</Badge>
+        </div>
+      </header>
 
       <Toolbar aria-label="File actions">
         <ToolbarGroup>
@@ -232,7 +245,8 @@ export function FilesScreen({ pathname }: { pathname: string }) {
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter"
+            placeholder="Filter files"
+            aria-label="Filter files"
             startAdornment={<Search size={15} />}
           />
         </ToolbarGroup>
@@ -293,9 +307,10 @@ export function FilesScreen({ pathname }: { pathname: string }) {
               {visibleEntries.map((entry) => (
                 <TableRow key={entry.name} className="group">
                   <TableCell>
-                    <button
+                    <Button
                       className="flex min-w-0 items-center gap-3 text-left"
-                      type="button"
+                      size="unstyled"
+                      variant="plain"
                       onClick={() => openEntry(entry)}
                     >
                       {entry.type === "directory" ? (
@@ -304,7 +319,7 @@ export function FilesScreen({ pathname }: { pathname: string }) {
                         <FileIcon size={17} className="shrink-0 text-[var(--aurora-text-muted)]" />
                       )}
                       <span className="truncate aurora-text-ui">{entry.name}</span>
-                    </button>
+                    </Button>
                   </TableCell>
                   <TableCell className="aurora-text-meta">
                     {entry.type === "directory" ? "Folder" : formatSize(entry.size)}
@@ -354,9 +369,13 @@ export function FilesScreen({ pathname }: { pathname: string }) {
         <p className="aurora-text-meta" role="status">Loading more files...</p>
       ) : null}
       {entries.length > pageSize ? (
-        <div className="flex items-center justify-between gap-3 aurora-text-meta" aria-label="Directory pagination">
-          <span>{entries.length.toLocaleString()} items</span>
-          <div className="flex items-center gap-2"><Button size="sm" variant="neutral" disabled={currentPage === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>Previous</Button><span>Page {currentPage + 1} of {pageCount}</span><Button size="sm" variant="neutral" disabled={currentPage >= pageCount - 1} onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))}>Next</Button></div>
+        <div className="flex flex-wrap items-center justify-between gap-3 aurora-text-meta" aria-label="Directory pagination">
+          <span className="aurora-text-meta">{entries.length.toLocaleString()} items</span>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="neutral" disabled={currentPage === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>Previous</Button>
+            <span>Page {currentPage + 1} of {pageCount}</span>
+            <Button size="sm" variant="neutral" disabled={currentPage >= pageCount - 1} onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))}>Next</Button>
+          </div>
         </div>
       ) : null}
 
