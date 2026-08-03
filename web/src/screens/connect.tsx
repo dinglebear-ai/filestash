@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Database } from "lucide-react";
 import { backendApi, sessionApi } from "@/lib/api/endpoints";
 import { useConfig } from "@/lib/config/config-context";
 import type { Connection, FormFields, Session } from "@/lib/api/types";
@@ -16,6 +17,7 @@ import { Callout } from "@/registry/aurora/ui/callout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/registry/aurora/ui/card";
 import { Spinner } from "@/registry/aurora/ui/spinner";
 import { DynamicForm } from "@/components/dynamic-form";
+import { AccessHeader } from "@/components/access-header";
 import { trimBase, withBase } from "@/lib/paths";
 
 /** Merge a connection's prefilled overrides onto a backend's field definitions. */
@@ -89,11 +91,14 @@ export function ConnectScreen() {
   const fields = baseFields && selected ? applyOverrides(baseFields, selected) : undefined;
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-6 px-6 py-12">
-      <header className="flex flex-col gap-1 text-center">
-        <p className="aurora-text-eyebrow text-[var(--aurora-text-muted)]">{config.name ?? "filestash"}</p>
-        <h1 className="aurora-text-section">Connect to a storage backend</h1>
-      </header>
+    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-6 px-5 py-10 sm:px-6 sm:py-12">
+      <AccessHeader
+        icon={Database}
+        eyebrow={config.name ?? "Filestash"}
+        title="Connect Your Storage"
+        description="Choose a configured storage service, then sign in with its connection details."
+        badge={selected?.label ?? "Storage Portal"}
+      />
 
       {connections.length > 1 ? (
         <ButtonGroup className="mx-auto flex-wrap">
@@ -110,7 +115,7 @@ export function ConnectScreen() {
         </ButtonGroup>
       ) : null}
 
-      <Card elevated>
+      <Card elevated accent="cyan">
         <CardContent className="p-6">
         {fields ? (
           <DynamicForm

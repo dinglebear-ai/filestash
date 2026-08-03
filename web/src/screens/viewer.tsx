@@ -13,6 +13,7 @@ import { ArrowLeft, Download } from "lucide-react";
 import { filesApi, pluginApi } from "@/lib/api/endpoints";
 import { useConfig } from "@/lib/config/config-context";
 import { Button } from "@/registry/aurora/ui/button";
+import { Badge } from "@/registry/aurora/ui/badge";
 import { EmptyState } from "@/registry/aurora/ui/empty-state";
 import { Spinner } from "@/registry/aurora/ui/spinner";
 import { Toolbar, ToolbarGroup, ToolbarSeparator } from "@/registry/aurora/ui/toolbar";
@@ -78,7 +79,7 @@ export function ViewerScreen({ pathname }: { pathname: string }) {
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <Toolbar>
+      <Toolbar className="sticky top-0 z-10 rounded-none border-x-0 border-t-0 px-3 py-2">
         <ToolbarGroup>
           <Button size="sm" variant="ghost" onClick={() => router.back()}>
             <ArrowLeft size={15} /> Back
@@ -86,6 +87,8 @@ export function ViewerScreen({ pathname }: { pathname: string }) {
         </ToolbarGroup>
         <ToolbarSeparator />
         <span className="min-w-0 flex-1 truncate aurora-text-ui">{name}</span>
+        <Badge tone="info" shape="tag" className="hidden sm:inline-flex">{plugin ? "Plugin" : kind}</Badge>
+        {extOf(name) ? <Badge tone="neutral" shape="tag">{extOf(name).toUpperCase()}</Badge> : null}
         <ToolbarGroup>
           <a href={src} download>
             <Button size="sm" variant="neutral">
@@ -95,7 +98,7 @@ export function ViewerScreen({ pathname }: { pathname: string }) {
         </ToolbarGroup>
       </Toolbar>
 
-      <div className="flex flex-1 items-center justify-center overflow-auto p-4">
+      <div className="flex flex-1 items-center justify-center overflow-auto p-3 sm:p-4">
         <ViewerBody kind={plugin ? "plugin" : kind} src={src} name={name} ext={extOf(name)} path={filePath} mime={mime} plugin={plugin} />
       </div>
     </div>

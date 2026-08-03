@@ -7,11 +7,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import bcrypt from "bcryptjs";
+import { KeyRound, Settings2 } from "lucide-react";
 import { adminApi, configApi } from "@/lib/api/endpoints";
 import type { FormElement } from "@/lib/api/types";
 import { withBase } from "@/lib/paths";
 import { Terminal, type TerminalLine } from "@/registry/aurora/blocks/navigation/terminal/terminal";
 import { Button } from "@/registry/aurora/ui/button";
+import { Badge } from "@/registry/aurora/ui/badge";
 import { Callout } from "@/registry/aurora/ui/callout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/registry/aurora/ui/card";
 import { Field } from "@/registry/aurora/ui/field";
@@ -20,6 +22,7 @@ import { SkeletonRow } from "@/registry/aurora/ui/skeleton";
 import { Spinner } from "@/registry/aurora/ui/spinner";
 import { Switch } from "@/registry/aurora/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/registry/aurora/ui/tabs";
+import { AccessHeader } from "@/components/access-header";
 
 type ConfigTree = Record<string, unknown>;
 const isField = (n: unknown): n is FormElement =>
@@ -89,12 +92,16 @@ function AdminSetup({ onDone }: { onDone: () => void }) {
 
   const canSubmit = setupToken.length >= 32 && password.length > 0 && password === confirm;
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center gap-5 px-6">
-      <header className="flex flex-col gap-1 text-center">
-        <p className="aurora-text-eyebrow text-[var(--aurora-text-muted)]">filestash</p>
-        <h1 className="aurora-text-section">Set up your admin password</h1>
-      </header>
-      <Card elevated>
+    <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center gap-5 px-5 py-10 sm:px-6">
+      <AccessHeader
+        icon={Settings2}
+        eyebrow="Filestash Admin"
+        title="Secure the Console"
+        description="Create the administrator password used to manage this Filestash instance."
+        badge="First-Run Setup"
+        badgeTone="warn"
+      />
+      <Card elevated accent="cyan">
         <CardContent className="p-6">
           <form
             className="flex flex-col gap-4"
@@ -103,14 +110,14 @@ function AdminSetup({ onDone }: { onDone: () => void }) {
               if (canSubmit) setup.mutate();
             }}
           >
-            <Field label="Setup token" description="Enter the FILESTASH_SETUP_TOKEN configured by the operator.">
-              <Input type="password" value={setupToken} onChange={(event) => setSetupToken(event.target.value)} autoComplete="off" autoFocus />
+            <Field label="Setup token" htmlFor="admin-setup-token" description="Enter the FILESTASH_SETUP_TOKEN configured by the operator.">
+              <Input id="admin-setup-token" type="password" value={setupToken} onChange={(event) => setSetupToken(event.target.value)} autoComplete="off" autoFocus />
             </Field>
-            <Field label="Admin password">
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <Field label="Admin password" htmlFor="admin-setup-password">
+              <Input id="admin-setup-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
             </Field>
-            <Field label="Confirm password" error={confirm && confirm !== password ? "Passwords don't match" : undefined}>
-              <Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+            <Field label="Confirm password" htmlFor="admin-setup-confirm" error={confirm && confirm !== password ? "Passwords don't match" : undefined}>
+              <Input id="admin-setup-confirm" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
             </Field>
             {setup.isError ? <Callout title="Setup failed" variant="error">Try again.</Callout> : null}
             <Button type="submit" variant="aurora" disabled={!canSubmit || setup.isPending} loading={setup.isPending}>
@@ -127,9 +134,16 @@ function AdminLogin({ onSuccess }: { onSuccess: () => void }) {
   const [password, setPassword] = useState("");
   const login = useMutation({ mutationFn: () => adminApi.login(password), onSuccess });
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center gap-5 px-6">
-      <h1 className="aurora-text-section text-center">Admin console</h1>
-      <Card elevated>
+    <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center gap-5 px-5 py-10 sm:px-6">
+      <AccessHeader
+        icon={KeyRound}
+        eyebrow="Filestash Admin"
+        title="Admin Console"
+        description="Sign in to manage storage connections, security, and service settings."
+        badge="Restricted"
+        badgeTone="neutral"
+      />
+      <Card elevated accent="cyan">
         <CardContent className="p-6">
           <form
             className="flex flex-col gap-4"
@@ -138,8 +152,8 @@ function AdminLogin({ onSuccess }: { onSuccess: () => void }) {
               login.mutate();
             }}
           >
-            <Field label="Password">
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
+            <Field label="Password" htmlFor="admin-login-password">
+              <Input id="admin-login-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
             </Field>
             {login.isError ? <Callout title="Invalid password" variant="error">Check the admin password and try again.</Callout> : null}
             <Button type="submit" variant="aurora" disabled={login.isPending} loading={login.isPending}>
@@ -158,10 +172,23 @@ type Section = (typeof SECTIONS)[number];
 function AdminShell() {
   const [section, setSection] = useState<Section>("Settings");
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col gap-6 px-6 py-6">
-      <header className="grid gap-2">
-        <p className="aurora-text-eyebrow text-[var(--aurora-text-muted)]">admin</p>
-        <h1 className="aurora-text-section">Admin console</h1>
+    <main className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-5 px-4 py-4 sm:px-6 sm:py-6">
+      <header
+        className="flex flex-wrap items-center gap-3 rounded-[var(--aurora-radius-2)] border px-4 py-3"
+        style={{
+          background: "var(--aurora-panel-medium)",
+          borderColor: "var(--aurora-border-default)",
+          boxShadow: "var(--aurora-shadow-medium), var(--aurora-highlight-medium)",
+        }}
+      >
+        <div className="grid gap-0.5">
+          <p className="aurora-text-eyebrow text-[var(--aurora-text-muted)]">Filestash</p>
+          <h1 className="aurora-text-section">Admin Console</h1>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <Badge tone="success" shape="tag" dot>Authenticated</Badge>
+          <Badge tone="neutral" shape="tag">{section}</Badge>
+        </div>
       </header>
       <Tabs value={section} onValueChange={(value) => setSection(value as Section)}>
         <TabsList aria-label="Admin sections">
@@ -289,18 +316,20 @@ function ConfigFieldRow({
 }) {
   const label = field.label || path[path.length - 1];
   const value = field.value;
+  const inputId = `config-${path.join("-").replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 
   if (field.type === "boolean" || field.type === "enable") {
     return (
       <div className="flex items-center justify-between gap-3">
         <span className="aurora-text-ui">{label}</span>
-        <Switch checked={value === true} onCheckedChange={(on: boolean) => onChange(path, on)} />
+        <Switch aria-label={label} checked={value === true} onCheckedChange={(on: boolean) => onChange(path, on)} />
       </div>
     );
   }
   return (
-    <Field label={label} description={field.description}>
+    <Field label={label} htmlFor={inputId} description={field.description}>
       <Input
+        id={inputId}
         type={field.type === "password" ? "password" : field.type === "number" ? "number" : "text"}
         value={value == null ? "" : String(value)}
         placeholder={field.placeholder}

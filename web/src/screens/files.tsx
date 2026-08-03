@@ -385,8 +385,8 @@ export function FilesScreen({ pathname }: { pathname: string }) {
             <DialogTitle>New folder</DialogTitle>
             <DialogDescription>Create a folder in {path}</DialogDescription>
           </DialogHeader>
-          <Field label="Folder name">
-            <Input value={folderName} onChange={(event) => setFolderName(event.target.value)} autoFocus />
+          <Field label="Folder name" htmlFor="new-folder-name">
+            <Input id="new-folder-name" value={folderName} onChange={(event) => setFolderName(event.target.value)} autoFocus />
           </Field>
           <DialogFooter>
             <Button variant="neutral" onClick={() => setFolderDialogOpen(false)}>Cancel</Button>
@@ -403,8 +403,8 @@ export function FilesScreen({ pathname }: { pathname: string }) {
             <DialogTitle>Rename</DialogTitle>
             <DialogDescription>Update the selected item name.</DialogDescription>
           </DialogHeader>
-          <Field label="Name">
-            <Input value={renameValue} onChange={(event) => setRenameValue(event.target.value)} autoFocus />
+          <Field label="Name" htmlFor="rename-item-name">
+            <Input id="rename-item-name" value={renameValue} onChange={(event) => setRenameValue(event.target.value)} autoFocus />
           </Field>
           <DialogFooter>
             <Button variant="neutral" onClick={() => setRenameEntry(null)}>Cancel</Button>

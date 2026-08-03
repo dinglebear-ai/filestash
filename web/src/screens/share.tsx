@@ -6,7 +6,7 @@
 // viewer scoped to the share (the proof establishes the share session cookie).
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ShieldCheck } from "lucide-react";
 import { shareApi } from "@/lib/api/endpoints";
 import { Button } from "@/registry/aurora/ui/button";
 import { Callout } from "@/registry/aurora/ui/callout";
@@ -16,6 +16,7 @@ import { Input } from "@/registry/aurora/ui/input";
 import { InputOTP } from "@/registry/aurora/ui/input-otp";
 import { Spinner } from "@/registry/aurora/ui/spinner";
 import { withBase } from "@/lib/paths";
+import { AccessHeader } from "@/components/access-header";
 
 type Step = "loading" | "password" | "email" | "code" | "error";
 
@@ -66,15 +67,16 @@ export function ShareScreen({ pathname }: { pathname: string }) {
   };
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center gap-5 px-6">
-      <header className="grid gap-2 text-center">
-        <p className="aurora-text-eyebrow text-[var(--aurora-text-muted)]">filestash</p>
-        <h1 className="aurora-text-section">Protected share</h1>
-        <p className="aurora-text-body-sm text-[var(--aurora-text-muted)]">
-          Enter the proof requested by the owner to open this shared file.
-        </p>
-      </header>
-      <Card elevated>
+    <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center gap-5 px-5 py-10 sm:px-6">
+      <AccessHeader
+        icon={ShieldCheck}
+        eyebrow="Filestash"
+        title="Protected Share"
+        description="Enter the proof requested by the owner to open this shared file."
+        badge="Verified Access"
+        badgeTone="rose"
+      />
+      <Card elevated accent="rose">
         <CardContent className="p-6">
           <form
             className="flex flex-col gap-4"
@@ -85,13 +87,15 @@ export function ShareScreen({ pathname }: { pathname: string }) {
           >
             <Field
               label={labels[step] ?? "Value"}
+              htmlFor="share-proof"
               error={failed ? "Incorrect, try again." : undefined}
               required
             >
               {step === "code" ? (
-                <InputOTP value={value} onChange={setValue} />
+                <InputOTP id="share-proof" value={value} onChange={setValue} />
               ) : (
                 <Input
+                  id="share-proof"
                   type={step === "password" ? "password" : step === "email" ? "email" : "text"}
                   value={value}
                   placeholder={labels[step] ?? "Value"}
