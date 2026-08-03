@@ -17,9 +17,14 @@ export function AccessHeader({
   badgeTone?: BadgeTone;
 }) {
   return (
-    <header className="grid justify-items-center gap-3 text-center">
+    <header className="relative isolate grid justify-items-center gap-4 overflow-hidden rounded-[var(--aurora-radius-3)] px-5 py-6 text-center">
       <div
-        className="flex size-12 items-center justify-center rounded-[var(--aurora-radius-1)] border"
+        className="pointer-events-none absolute inset-x-10 top-0 -z-10 h-32 rounded-full blur-3xl"
+        style={{ background: "color-mix(in srgb, var(--aurora-accent-primary) 16%, transparent)" }}
+        aria-hidden="true"
+      />
+      <div
+        className="flex size-14 items-center justify-center rounded-[var(--aurora-radius-2)] border"
         style={{
           color: "var(--aurora-accent-primary)",
           background: "var(--aurora-accent-primary-surface)",
@@ -28,7 +33,7 @@ export function AccessHeader({
         }}
         aria-hidden="true"
       >
-        <Icon size={22} strokeWidth={1.6} />
+        <Icon size={24} strokeWidth={1.6} />
       </div>
       <div className="grid justify-items-center gap-1.5">
         <div className="flex flex-wrap items-center justify-center gap-2">

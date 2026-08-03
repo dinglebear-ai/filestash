@@ -259,7 +259,7 @@ export function FilesScreen({ pathname }: { pathname: string }) {
       ) : null}
 
       {/* Listing */}
-      <Card elevated className="overflow-hidden rounded-[8px]">
+      <Card elevated className="overflow-hidden rounded-[var(--aurora-radius-2)]">
         <CardContent className="p-0">
         {ls.isPending ? (
           <div className="flex flex-col gap-3 p-4" aria-label="Loading directory">
@@ -299,6 +299,7 @@ export function FilesScreen({ pathname }: { pathname: string }) {
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
+                <TableHead className="hidden w-40 md:table-cell">Modified</TableHead>
                 <TableHead className="w-28">Size</TableHead>
                 <TableHead className="w-32 text-right">Actions</TableHead>
               </TableRow>
@@ -313,13 +314,18 @@ export function FilesScreen({ pathname }: { pathname: string }) {
                       variant="plain"
                       onClick={() => openEntry(entry)}
                     >
-                      {entry.type === "directory" ? (
-                        <Folder size={17} className="shrink-0 text-[var(--aurora-accent-primary)]" />
-                      ) : (
-                        <FileIcon size={17} className="shrink-0 text-[var(--aurora-text-muted)]" />
-                      )}
+                      <span className="flex size-8 shrink-0 items-center justify-center rounded-[var(--aurora-radius-1)] border border-[var(--aurora-border-subtle)] bg-[var(--aurora-panel-soft)]">
+                        {entry.type === "directory" ? (
+                          <Folder size={17} className="text-[var(--aurora-accent-primary)]" />
+                        ) : (
+                          <FileIcon size={17} className="text-[var(--aurora-text-muted)]" />
+                        )}
+                      </span>
                       <span className="truncate aurora-text-ui">{entry.name}</span>
                     </Button>
+                  </TableCell>
+                  <TableCell className="hidden aurora-text-meta text-[var(--aurora-text-muted)] md:table-cell">
+                    {formatDate(entry.time)}
                   </TableCell>
                   <TableCell className="aurora-text-meta">
                     {entry.type === "directory" ? "Folder" : formatSize(entry.size)}
@@ -454,4 +460,9 @@ function formatSize(bytes: number): string {
     i++;
   }
   return `${n.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function formatDate(timestamp?: number): string {
+  if (!timestamp) return "—";
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(timestamp * 1000));
 }

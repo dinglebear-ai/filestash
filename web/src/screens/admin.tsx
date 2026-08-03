@@ -92,7 +92,7 @@ function AdminSetup({ onDone }: { onDone: () => void }) {
 
   const canSubmit = setupToken.length >= 32 && password.length > 0 && password === confirm;
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center gap-5 px-5 py-10 sm:px-6">
+    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-5 px-5 py-10 sm:px-6">
       <AccessHeader
         icon={Settings2}
         eyebrow="Filestash Admin"
@@ -101,8 +101,8 @@ function AdminSetup({ onDone }: { onDone: () => void }) {
         badge="First-Run Setup"
         badgeTone="warn"
       />
-      <Card elevated accent="cyan">
-        <CardContent className="p-6">
+      <Card elevated accent="cyan" className="overflow-hidden">
+        <CardContent className="p-6 sm:p-7">
           <form
             className="flex flex-col gap-4"
             onSubmit={(e) => {
@@ -134,7 +134,7 @@ function AdminLogin({ onSuccess }: { onSuccess: () => void }) {
   const [password, setPassword] = useState("");
   const login = useMutation({ mutationFn: () => adminApi.login(password), onSuccess });
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center gap-5 px-5 py-10 sm:px-6">
+    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-5 px-5 py-10 sm:px-6">
       <AccessHeader
         icon={KeyRound}
         eyebrow="Filestash Admin"
@@ -143,8 +143,8 @@ function AdminLogin({ onSuccess }: { onSuccess: () => void }) {
         badge="Restricted"
         badgeTone="neutral"
       />
-      <Card elevated accent="cyan">
-        <CardContent className="p-6">
+      <Card elevated accent="cyan" className="overflow-hidden">
+        <CardContent className="p-6 sm:p-7">
           <form
             className="flex flex-col gap-4"
             onSubmit={(e) => {
@@ -248,7 +248,7 @@ function SettingsPanel() {
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="sticky top-3 z-10 flex items-center justify-between rounded-[var(--aurora-radius-2)] border border-[var(--aurora-border-subtle)] bg-[var(--aurora-panel-medium)] px-4 py-3 shadow-[var(--aurora-shadow-medium)] backdrop-blur-xl">
         <div>
           <h2 className="aurora-text-section">Settings</h2>
           <p className="aurora-text-body-sm text-[var(--aurora-text-muted)]">
@@ -262,7 +262,7 @@ function SettingsPanel() {
       {save.isError ? <Callout title="Settings were not saved" variant="error"><div className="grid gap-3"><span>{(save.error as Error).message}</span><Button size="sm" variant="neutral" onClick={() => save.mutate()}>Retry</Button></div></Callout> : null}
       {save.isSuccess ? <Callout title="Settings saved" variant="success">The current configuration was reloaded from the server.</Callout> : null}
       {Object.entries(tree).map(([category, node]) => (
-        <Card key={category} elevated>
+        <Card key={category} elevated className="overflow-hidden">
           <CardHeader>
             <CardTitle as="h3">{category}</CardTitle>
             <CardDescription>Configuration namespace</CardDescription>

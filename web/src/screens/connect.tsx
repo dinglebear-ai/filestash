@@ -91,7 +91,7 @@ export function ConnectScreen() {
   const fields = baseFields && selected ? applyOverrides(baseFields, selected) : undefined;
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-6 px-5 py-10 sm:px-6 sm:py-12">
+    <main className="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center gap-5 px-5 py-10 sm:px-6 sm:py-12">
       <AccessHeader
         icon={Database}
         eyebrow={config.name ?? "Filestash"}
@@ -101,7 +101,7 @@ export function ConnectScreen() {
       />
 
       {connections.length > 1 ? (
-        <ButtonGroup className="mx-auto flex-wrap">
+        <ButtonGroup className="mx-auto flex-wrap rounded-[var(--aurora-radius-2)] border border-[var(--aurora-border-subtle)] bg-[var(--aurora-panel-soft)] p-1 shadow-[var(--aurora-shadow-soft)]">
           {connections.map((c, i) => (
             <Button
               key={`${c.label}-${i}`}
@@ -115,8 +115,8 @@ export function ConnectScreen() {
         </ButtonGroup>
       ) : null}
 
-      <Card elevated accent="cyan">
-        <CardContent className="p-6">
+      <Card elevated accent="cyan" className="overflow-hidden">
+        <CardContent className="p-6 sm:p-7">
         {fields ? (
           <DynamicForm
             key={selectedIdx}

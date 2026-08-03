@@ -67,7 +67,7 @@ export function ShareScreen({ pathname }: { pathname: string }) {
   };
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center gap-5 px-5 py-10 sm:px-6">
+    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-5 px-5 py-10 sm:px-6">
       <AccessHeader
         icon={ShieldCheck}
         eyebrow="Filestash"
@@ -76,8 +76,8 @@ export function ShareScreen({ pathname }: { pathname: string }) {
         badge="Verified Access"
         badgeTone="rose"
       />
-      <Card elevated accent="rose">
-        <CardContent className="p-6">
+      <Card elevated accent="rose" className="overflow-hidden">
+        <CardContent className="p-6 sm:p-7">
           <form
             className="flex flex-col gap-4"
             onSubmit={(e) => {
