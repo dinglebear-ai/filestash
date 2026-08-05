@@ -37,12 +37,14 @@ export function serializeConfig(node: unknown): unknown {
     const o = node as Record<string, unknown>;
     if (typeof o.type === "string" && "value" in o) {
       if (o.type === "number") {
-        if (o.value === "" || o.value == null) return null;
-        const number = typeof o.value === "number" ? o.value : Number(o.value);
+        const effectiveValue = o.value === "" || o.value == null ? (o.default ?? 0) : o.value;
+        const number = typeof effectiveValue === "number" ? effectiveValue : Number(effectiveValue);
         if (!Number.isFinite(number)) throw new Error(`${String(o.label ?? "Number")} must be a valid number`);
         return number;
       }
-      return o.value;
+      const effectiveValue = o.value ?? o.default;
+      if (o.type === "boolean" || o.type === "enable") return effectiveValue ?? false;
+      return effectiveValue ?? "";
     }
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(o)) out[k] = serializeConfig(v);
@@ -119,7 +121,7 @@ function AdminSetup({ onDone }: { onDone: () => void }) {
             <Field label="Confirm password" htmlFor="admin-setup-confirm" error={confirm && confirm !== password ? "Passwords don't match" : undefined}>
               <Input id="admin-setup-confirm" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
             </Field>
-            {setup.isError ? <Callout title="Setup failed" variant="error">Try again.</Callout> : null}
+            {setup.isError ? <Callout title="Setup failed" variant="error">{(setup.error as Error).message}</Callout> : null}
             <Button type="submit" variant="aurora" disabled={!canSubmit || setup.isPending} loading={setup.isPending}>
               {setup.isPending ? "Setting up…" : "Create admin"}
             </Button>
