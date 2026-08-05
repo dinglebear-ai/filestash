@@ -37,17 +37,26 @@ export function serializeConfig(node: unknown): unknown {
     const o = node as Record<string, unknown>;
     if (typeof o.type === "string" && "value" in o) {
       if (o.type === "number") {
-        const effectiveValue = o.value === "" || o.value == null ? (o.default ?? 0) : o.value;
-        const number = typeof effectiveValue === "number" ? effectiveValue : Number(effectiveValue);
+        if (o.value === "" || o.value == null) {
+          if (o.default == null) return undefined;
+          const number = typeof o.default === "number" ? o.default : Number(o.default);
+          if (!Number.isFinite(number)) throw new Error(`${String(o.label ?? "Number")} must be a valid number`);
+          return number;
+        }
+        const number = typeof o.value === "number" ? o.value : Number(o.value);
         if (!Number.isFinite(number)) throw new Error(`${String(o.label ?? "Number")} must be a valid number`);
         return number;
       }
       const effectiveValue = o.value ?? o.default;
-      if (o.type === "boolean" || o.type === "enable") return effectiveValue ?? false;
-      return effectiveValue ?? "";
+      if (effectiveValue == null) return undefined;
+      return effectiveValue;
     }
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(o)) out[k] = serializeConfig(v);
+    for (const [k, v] of Object.entries(o)) {
+      const serialized = serializeConfig(v);
+      if (serialized === undefined) continue;
+      out[k] = serialized;
+    }
     return out;
   }
   return node;
@@ -63,7 +72,7 @@ export function AdminScreen({ pathname }: { pathname: string }) {
   }
   if (session.isLoading) return <Centered label="Loading admin session" />;
   if (session.isError) {
-    return <Centered><Callout title="Could not check the admin session" variant="error"><div className="grid gap-3"><span>{(session.error as Error).message}</span><Button size="sm" variant="neutral" onClick={() => void session.refetch()}>Retry</Button></div></Callout></Centered>;
+    return <Centered><Callout title="Could not check the admin session" variant="error"><div className="grid gap-3"><span>{session.error instanceof Error ? session.error.message : "The admin session endpoint returned an error."}</span><Button size="sm" variant="neutral" onClick={() => void session.refetch()}>Retry</Button></div></Callout></Centered>;
   }
   if (!session.data) {
     return <AdminLogin onSuccess={() => queryClient.invalidateQueries({ queryKey: ["admin-session"] })} />;
@@ -121,7 +130,7 @@ function AdminSetup({ onDone }: { onDone: () => void }) {
             <Field label="Confirm password" htmlFor="admin-setup-confirm" error={confirm && confirm !== password ? "Passwords don't match" : undefined}>
               <Input id="admin-setup-confirm" type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
             </Field>
-            {setup.isError ? <Callout title="Setup failed" variant="error">{(setup.error as Error).message}</Callout> : null}
+            {setup.isError ? <Callout title="Setup failed" variant="error">{setup.error instanceof Error ? setup.error.message : "The admin setup request failed."}</Callout> : null}
             <Button type="submit" variant="aurora" disabled={!canSubmit || setup.isPending} loading={setup.isPending}>
               {setup.isPending ? "Setting up…" : "Create admin"}
             </Button>
@@ -261,7 +270,7 @@ function SettingsPanel() {
           {save.isSuccess ? "Saved" : "Save"}
         </Button>
       </div>
-      {save.isError ? <Callout title="Settings were not saved" variant="error"><div className="grid gap-3"><span>{(save.error as Error).message}</span><Button size="sm" variant="neutral" onClick={() => save.mutate()}>Retry</Button></div></Callout> : null}
+      {save.isError ? <Callout title="Settings were not saved" variant="error"><div className="grid gap-3"><span>{save.error instanceof Error ? save.error.message : "The admin save endpoint returned an error."}</span><Button size="sm" variant="neutral" onClick={() => save.mutate()}>Retry</Button></div></Callout> : null}
       {save.isSuccess ? <Callout title="Settings saved" variant="success">The current configuration was reloaded from the server.</Callout> : null}
       {Object.entries(tree).map(([category, node]) => (
         <Card key={category} elevated className="overflow-hidden">

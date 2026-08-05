@@ -81,4 +81,30 @@ describe("admin workflows", () => {
     expect(adminApi.login).toHaveBeenCalledWith("new password");
     expect(replace).toHaveBeenCalledWith("/admin/");
   });
+
+  it("renders the real error message when setup fails", async () => {
+    adminApi.session.mockResolvedValue(false);
+    adminApi.getConfig.mockRejectedValueOnce(new Error("setup config unreachable"));
+    const view = renderAdmin("/admin/setup");
+    const inputs = view.container.querySelectorAll('input[type="password"]');
+    const token = "t".repeat(32);
+    await userEvent.type(inputs[0], token);
+    await userEvent.type(inputs[1], "new password");
+    await userEvent.type(inputs[2], "new password");
+    await userEvent.click(screen.getByRole("button", { name: "Create admin" }));
+    expect(await screen.findByText("setup config unreachable")).toBeInTheDocument();
+  });
+
+  it("renders a fallback message for a non-Error setup rejection", async () => {
+    adminApi.session.mockResolvedValue(false);
+    adminApi.getConfig.mockRejectedValueOnce("boom");
+    const view = renderAdmin("/admin/setup");
+    const inputs = view.container.querySelectorAll('input[type="password"]');
+    const token = "t".repeat(32);
+    await userEvent.type(inputs[0], token);
+    await userEvent.type(inputs[1], "new password");
+    await userEvent.type(inputs[2], "new password");
+    await userEvent.click(screen.getByRole("button", { name: "Create admin" }));
+    expect(await screen.findByText("The admin setup request failed.")).toBeInTheDocument();
+  });
 });
