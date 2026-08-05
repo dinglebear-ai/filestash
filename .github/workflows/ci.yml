@@ -31,24 +31,58 @@ jobs:
       lint-command: npm run lint
       typecheck-command: npm run typecheck
       test-command: npm run test:coverage
-      build-command: npm run build
+      # fast-node.yml runs steps in a fixed order (test, then contract-command,
+      # then build-command), so build-command itself always executes AFTER the
+      # contract check. The Next.js export must exist before build-embed.mjs
+      # (run with --skip-build) and the asset diff can succeed, so the build
+      # is folded into contract-command and build-command is left unset.
+      # check-web-assets.sh also defaults to a repo-root-relative path, so it
+      # needs an explicit argument now that this step runs from web/.
       contract-command: >-
+        npm run build &&
         node scripts/build-embed.mjs --apply --skip-build &&
-        ../scripts/check-web-assets.sh &&
+        ../scripts/check-web-assets.sh ../public/assets/_next &&
         git diff --exit-code -- ../public/
       timeout-minutes: 25
 
+  # fast-go.yml has no hook for repo-specific system packages: its
+  # "vulnerability" job (govulncheck) has no command input at all, and cgo
+  # preprocessing for the image/video plugins needs headers that aren't on
+  # the runner image. Both fast-go.yml sub-jobs failed identically on missing
+  # native deps, so backend is a bespoke job (matching backend-evidence)
+  # instead of a fast-go.yml call.
   backend:
-    uses: dinglebear-ai/workflows/.github/workflows/fast-go.yml@542ea7b7e5ca2d4e21f3277bfcf158584fee90ec
-    with:
-      go-version: "1.26.5"
-      generate-command: go generate -x ./server/...
-      vet-command: go vet ./server/... ./cmd/...
-      test-command: >-
-        go test -count=1 ./server/... ./cmd/... &&
-        CGO_ENABLED=1 go test -race -count=1 ./server/... ./cmd/...
-      govulncheck-version: "v1.6.0"
-      timeout-minutes: 45
+    name: Backend build, vet, and tests
+    runs-on: [self-hosted, ci-pool-go]
+    timeout-minutes: 45
+    env:
+      GOFLAGS: -mod=readonly
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26.5"
+          cache: true
+      - name: Native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libjpeg-dev libtiff-dev libpng-dev libwebp-dev libraw-dev libheif-dev \
+            libgif-dev libvips-dev libavcodec-dev libavdevice-dev libavfilter-dev \
+            libavformat-dev libswresample-dev libswscale-dev libavutil-dev
+      - run: go mod download && go mod verify
+      - run: go generate -x ./server/...
+      - run: go vet ./server/... ./cmd/...
+      - run: go test -count=1 ./server/... ./cmd/...
+      - run: CGO_ENABLED=1 go test -race -count=1 ./server/... ./cmd/...
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+      - run: govulncheck ./server/... ./cmd/...
+      - name: Module files remain readonly
+        run: git diff --exit-code -- go.mod go.sum
 
   backend-evidence:
     name: Backend coverage and benchmarks
@@ -65,6 +99,13 @@ jobs:
         with:
           go-version: "1.26.5"
           cache: true
+      - name: Native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libjpeg-dev libtiff-dev libpng-dev libwebp-dev libraw-dev libheif-dev \
+            libgif-dev libvips-dev libavcodec-dev libavdevice-dev libavfilter-dev \
+            libavformat-dev libswresample-dev libswscale-dev libavutil-dev
       - run: go mod download && go mod verify
       - run: go generate -x ./server/...
       - run: go test -count=1 -covermode=atomic -coverprofile=coverage-go.out ./server/... ./cmd/...
@@ -87,14 +128,88 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  sbom:
+    runs-on: [self-hosted, ci-pool-go]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.26.5"
+          cache: true
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: make sbom
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cyclonedx-sbom-${{ github.sha }}
+          path: dist/*.cdx.json
+          if-no-files-found: error
+          retention-days: 30
+
+  image:
+    needs: [frontend, backend]
+    runs-on: [self-hosted, ci-pool-ops]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: false
+          load: true
+          build-args: BUILD_REF=${{ github.sha }}
+          tags: filestash:${{ github.sha }}
+          # Docker's load exporter cannot import the manifest list produced by
+          # attestations. The dedicated sbom job publishes validated CycloneDX.
+          provenance: false
+          sbom: false
+      - name: Smoke-test image startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          name=filestash-smoke
+          trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
+          docker run -d --name "$name" "filestash:${{ github.sha }}" >/dev/null
+          for _ in {1..45}; do
+            state=$(docker inspect --format '{{.State.Status}}' "$name")
+            health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$name")
+            if [[ "$health" == "healthy" ]]; then
+              exit 0
+            fi
+            if [[ "$state" == "exited" || "$health" == "unhealthy" ]]; then
+              docker logs "$name"
+              exit 1
+            fi
+            sleep 2
+          done
+          docker logs "$name"
+          exit 1
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: filestash:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
   gate:
     name: CI
     if: always()
-    needs: [contract, frontend, backend, backend-evidence]
+    needs: [contract, frontend, backend, backend-evidence, sbom, image]
     runs-on: [self-hosted, ci-pool-ops]
     timeout-minutes: 2
     steps:
       - name: Require every fast lane
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
-        run: test "$RESULTS" = "success success success success"
+        run: test "$RESULTS" = "success success success success success success"
