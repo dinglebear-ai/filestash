@@ -43,7 +43,7 @@
     "epubjs": "^0.3.93",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.487.0",
-    "next": "16.2.9",
+    "next": "16.2.12",
     "papaparse": "^5.5.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -66,7 +66,7 @@
     "@types/three": "^0.184.1",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9",
-    "eslint-config-next": "16.2.9",
+    "eslint-config-next": "16.2.12",
     "jsdom": "^27.0.0",
     "msw": "^2.15.0",
     "serve": "^14.2.5",
@@ -76,6 +76,7 @@
   },
   "overrides": {
     "@xmldom/xmldom": "0.9.10",
-    "postcss": "8.5.19"
+    "postcss": "8.5.19",
+    "sharp": "0.35.3"
   }
 }
